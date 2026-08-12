@@ -26,8 +26,8 @@
 #endif
 
 // Window size
-#define SBK_SCREEN_WIDTH 864
-#define SBK_SCREEN_HEIGHT 1080
+#define SBK_SCREEN_WIDTH 432
+#define SBK_SCREEN_HEIGHT 540
 
 // Util macro
 #define array_length(array) (sizeof(array) / sizeof(array[0]))

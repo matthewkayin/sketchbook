@@ -3,10 +3,10 @@
 #include <cmath>
 #include <cstring>
 
-const float ZEN_PI = 3.14159265358979323846f;
-const float ZEN_FLOAT_EPSILON = 1.192092896e-07f;
-const float ZEN_DEG_TO_RAD = ZEN_PI / 180.f;
-const float ZEN_RAD_TO_DEG = 180.0f / ZEN_PI;
+const float SBK_PI = 3.14159265358979323846f;
+const float SBK_FLOAT_EPSILON = 1.192092896e-07f;
+const float SBK_DEG_TO_RAD = SBK_PI / 180.f;
+const float SBK_RAD_TO_DEG = 180.0f / SBK_PI;
 
 // VEC2
 
@@ -30,10 +30,10 @@ struct vec2 {
     static vec2 left() { return vec2(-1.0f, 0.0f); }
 
     bool operator==(const vec2& other) const {
-        if (std::abs(x - other.x) > ZEN_FLOAT_EPSILON) {
+        if (std::abs(x - other.x) > SBK_FLOAT_EPSILON) {
             return false;
         }
-        if (std::abs(y - other.y) > ZEN_FLOAT_EPSILON) {
+        if (std::abs(y - other.y) > SBK_FLOAT_EPSILON) {
             return false;
         }
         return true;
@@ -180,13 +180,13 @@ struct vec3 {
     static vec3 back() { return vec3(0.0f, 0.0f, 1.0f); }
 
     bool operator==(const vec3& other) const {
-        if (std::abs(x - other.x) > ZEN_FLOAT_EPSILON) {
+        if (std::abs(x - other.x) > SBK_FLOAT_EPSILON) {
             return false;
         }
-        if (std::abs(y - other.y) > ZEN_FLOAT_EPSILON) {
+        if (std::abs(y - other.y) > SBK_FLOAT_EPSILON) {
             return false;
         }
-        if (std::abs(z - other.z) > ZEN_FLOAT_EPSILON) {
+        if (std::abs(z - other.z) > SBK_FLOAT_EPSILON) {
             return false;
         }
         return true;
@@ -286,16 +286,16 @@ struct vec4 {
     }
 
     bool operator==(const vec4& other) const {
-        if (std::abs(x - other.x) > ZEN_FLOAT_EPSILON) {
+        if (std::abs(x - other.x) > SBK_FLOAT_EPSILON) {
             return false;
         }
-        if (std::abs(y - other.y) > ZEN_FLOAT_EPSILON) {
+        if (std::abs(y - other.y) > SBK_FLOAT_EPSILON) {
             return false;
         }
-        if (std::abs(z - other.z) > ZEN_FLOAT_EPSILON) {
+        if (std::abs(z - other.z) > SBK_FLOAT_EPSILON) {
             return false;
         }
-        if (std::abs(w - other.w) > ZEN_FLOAT_EPSILON) {
+        if (std::abs(w - other.w) > SBK_FLOAT_EPSILON) {
             return false;
         }
         return true;
@@ -627,4 +627,12 @@ struct mat4 {
     vec3 right() const {
         return vec3(data[0], data[4], data[8]).normalized();
     }
+};
+
+// VERTEX 3D
+
+struct Vertex3d {
+    vec3 position;
+    vec3 normal;
+    vec2 tex_coord;
 };

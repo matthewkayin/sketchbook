@@ -34,7 +34,7 @@ void input_poll_events() {
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
             case SDL_EVENT_QUIT: {
-                state.user_requests_exit = false;
+                state.user_requests_exit = true;
                 break;
             }
             case SDL_EVENT_KEY_DOWN:
@@ -48,8 +48,6 @@ void input_poll_events() {
                 break;
             }
             case SDL_EVENT_WINDOW_RESIZED: {
-                int width, height;
-                SDL_GetWindowSize(state.window, &width, &height);
                 renderer_on_resized();
                 break;
             }

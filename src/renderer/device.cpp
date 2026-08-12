@@ -42,8 +42,9 @@ bool vulkan_device_create(VulkanContext* context) {
     for (uint32_t index = 0; index < physical_device_count; index++) {
         uint32_t device_score = vulkan_score_physical_device(physical_devices[index], context->surface);
 
-        if (device_score > selected_device_score ||
-            selected_device_score == VULKAN_DEVICE_DOES_NOT_MEET_REQUIREMENTS
+        if (device_score != VULKAN_DEVICE_DOES_NOT_MEET_REQUIREMENTS &&
+            (device_score > selected_device_score ||
+            selected_device_score == VULKAN_DEVICE_DOES_NOT_MEET_REQUIREMENTS)
         ) {
             context->device.physical_device = physical_devices[index];
             selected_device_score = device_score;
@@ -76,6 +77,8 @@ bool vulkan_device_create(VulkanContext* context) {
             break;
         }
     }
+    // TODO: we are falling back to 1 sample as the default, but RESOLVE_MODE_AVERAGE doesn't work with that
+    log_debug("Using %u samples.", context->device.msaa_sample_count);
 
     log_debug("Creating logical device...");
 

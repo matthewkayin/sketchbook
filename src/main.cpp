@@ -29,6 +29,7 @@ int main() {
 
     while (app_is_running()) {
         input_poll_events();
+        renderer_draw_frame();
     }
 
     app_quit();
