@@ -16,7 +16,7 @@ SHADER_XX_FLAGS := -target spirv -profile spirv_1_4 -emit-spirv-directly \
 				   -fvk-use-entrypoint-name -entry vertex_main -entry fragment_main -entry compute_main
 SHADER_SRC_DIR      := shader
 
-INCLUDE_FLAGS   := -Isrc -Ivendor
+INCLUDE_FLAGS   := -Isrc -isystem vendor
 DEFINES         := -D_CRT_SECURE_NO_WARNINGS
 
 EXTENSION       :=

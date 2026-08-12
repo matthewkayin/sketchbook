@@ -18,5 +18,16 @@
     #define SBK_PLATFORM_STR "MacOS"
 #endif
 
+// Build string
+#ifdef SBK_DEBUG
+    #define SBK_BUILD_STR "Debug"
+#else
+    #define SBK_BUILD_STR "Release"
+#endif
+
+// Window size
+#define SBK_SCREEN_WIDTH 864
+#define SBK_SCREEN_HEIGHT 1080
+
 // Util macro
 #define array_length(array) (sizeof(array) / sizeof(array[0]))

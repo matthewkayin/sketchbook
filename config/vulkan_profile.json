@@ -1,0 +1,38 @@
+{
+    "$schema": "https://schema.khronos.org/vulkan/profiles-0.8.2-359.json#",
+    "capabilities": {
+        "SKB_required_capabilities": {
+          "features": {
+            "VkPhysicalDeviceExtendedDynamicStateFeaturesEXT": {
+              "extendedDynamicState": true
+            },
+            "VkPhysicalDeviceVulkan11Features": {
+              "shaderDrawParameters": true
+            },
+            "VkPhysicalDeviceVulkan13Features": {
+              "synchronization2": true,
+              "dynamicRendering": true
+            },
+            "VkPhysicalDeviceTimelineSemaphoreFeatures": {
+              "timelineSemaphore": true
+            },
+            "VkPhysicalDeviceFeatures2": {
+              "features": {
+                "samplerAnisotropy": true
+              }
+            }
+          }
+        }
+    },
+    "profiles": {
+        "VP_SKB_profile": {
+            "version": 1,
+            "api-version": "1.3.276",
+            "label": "Sketchbook Profile",
+            "description": "A profile for the sketchbook app",
+            "capabilities": [
+                "SKB_required_capabilities"
+            ]
+        }
+    }
+}
