@@ -28,3 +28,6 @@ bool input_is_mouse_button_pressed(InputMouseButton button);
 // Mouse movement
 ivec2 input_get_mouse_position();
 ivec2 input_get_mouse_motion();
+
+// Mouse scroll
+int input_get_mouse_scroll();

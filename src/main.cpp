@@ -4,6 +4,11 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
+#include <algorithm>
+
+static const float CAMERA_SCROLL_SPEED = 100.0f;
+static const float CAMERA_YAW_SPEED = 50.0f * SBK_DEG_TO_RAD;
+static const float CAMERA_PITCH_SPEED = 50.0f * SBK_DEG_TO_RAD;
 
 struct AppState {
     SDL_Window* window;
@@ -14,6 +19,10 @@ struct AppState {
     uint32_t updates;
     uint32_t fps;
     uint32_t ups;
+
+    float camera_pitch;
+    float camera_yaw;
+    float camera_distance;
 };
 static AppState state;
 
@@ -27,9 +36,34 @@ int main() {
         return 1;
     }
 
+    state.camera_pitch = 45.0f * SBK_DEG_TO_RAD;
+    state.camera_yaw = 45.0f * SBK_DEG_TO_RAD;
+    state.camera_distance = 10.0f;
+
     while (app_is_running()) {
         input_poll_events();
-        renderer_draw_frame();
+
+        double delta = app_timekeep();
+
+        state.camera_distance += input_get_mouse_scroll() * -CAMERA_SCROLL_SPEED * delta;
+        state.camera_distance = std::clamp(state.camera_distance, 0.0f, 1000.0f);
+
+        if (input_is_mouse_button_pressed(INPUT_MOUSE_BUTTON_LEFT)) {
+            ivec2 mouse_motion = input_get_mouse_motion();
+            state.camera_yaw += mouse_motion.x * CAMERA_YAW_SPEED * delta;
+            state.camera_pitch += mouse_motion.y * CAMERA_PITCH_SPEED * delta;
+            state.camera_pitch = std::clamp(state.camera_pitch, -89.0f * SBK_DEG_TO_RAD, 89.0f * SBK_DEG_TO_RAD);
+        }
+
+        vec3 camera_position = vec3(
+            state.camera_distance * cos(state.camera_pitch) * sin(state.camera_yaw),
+            state.camera_distance * sin(state.camera_pitch),
+            state.camera_distance * cos(state.camera_pitch) * cos(state.camera_yaw)
+        );
+
+        mat4 model = mat4::identity();
+        mat4 view = mat4::look_at(camera_position, vec3(0.0f, 0.0f, 0.0f), vec3::up());
+        renderer_draw_frame(model, view);
     }
 
     app_quit();

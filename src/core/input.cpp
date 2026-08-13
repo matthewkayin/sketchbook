@@ -6,6 +6,7 @@ struct InputState {
 
     ivec2 mouse_position;
     ivec2 mouse_motion;
+    int mouse_scroll;
     bool key_pressed_current[SDL_SCANCODE_COUNT];
     bool key_pressed_previous[SDL_SCANCODE_COUNT];
     bool mouse_pressed_current[INPUT_MOUSE_BUTTON_COUNT];
@@ -29,6 +30,7 @@ void input_poll_events() {
     memcpy(state.key_pressed_previous, state.key_pressed_current, sizeof(state.key_pressed_previous));
     memcpy(state.mouse_pressed_previous, state.mouse_pressed_current, sizeof(state.mouse_pressed_previous));
     state.mouse_motion = ivec2(0, 0);
+    state.mouse_scroll = 0;
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -55,6 +57,10 @@ void input_poll_events() {
                 // Note, may need to change this to scale with screen size
                 state.mouse_position = ivec2(event.motion.x, event.motion.y);
                 state.mouse_motion = ivec2(event.motion.xrel, event.motion.yrel);
+                break;
+            }
+            case SDL_EVENT_MOUSE_WHEEL: {
+                state.mouse_scroll = event.wheel.integer_y;
                 break;
             }
         }
@@ -105,4 +111,10 @@ ivec2 input_get_mouse_position() {
 
 ivec2 input_get_mouse_motion() {
     return state.mouse_motion;
+}
+
+// MOUSE SCROLL
+
+int input_get_mouse_scroll() {
+    return state.mouse_scroll;
 }

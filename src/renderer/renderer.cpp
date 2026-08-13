@@ -196,7 +196,7 @@ void renderer_on_resized() {
     renderer_recreate_swapchain();
 }
 
-void renderer_draw_frame() {
+void renderer_draw_frame(mat4 model, mat4 view) {
     // Wait for current frame fence
     VkResult fence_result = vkWaitForFences(
         context.device.logical_device,
@@ -352,29 +352,25 @@ void renderer_draw_frame() {
     };
     vkCmdSetScissor(context.graphics_command_buffers[context.frame_index], 0, 1, &scissor);
 
-    // BEGIN DRAWING
+    // DRAW MODEL
 
-    static float start_time = SDL_GetTicksNS();
-    float elapsed_percent = (SDL_GetTicksNS() - start_time) / (2 * SDL_NS_PER_SECOND);
-
-    quat rotation = quat::from_axis_angle(vec3::up(), elapsed_percent * 90 * SBK_DEG_TO_RAD, true);
-
-    VulkanUniformBufferObject ubo {
-        .model = rotation.to_rotation_matrix(vec3(0.0f, 0.0f, 0.0f)),
-        .view = mat4::look_at(vec3(2.0f, 3.0f, -2.0f), vec3(0.0f, 0.0f, 0.0f), vec3::up()),
+    RendererUniformBufferObject ubo {
+        .model = model,
+        .view = view,
         .projection = mat4::perspective(
             45.0f * SBK_DEG_TO_RAD,
             (float)context.swapchain.extent.width / (float)context.swapchain.extent.height,
             0.1f, 1000.0f),
         .padding = {}
     };
+
     // This accounts for the fact that our math library is GL-style (Y coordinate inverted)
     // should probably change the math library or the coordinate system creation
     ubo.projection.data[5] *= -1;
 
     vulkan_buffer_load_data(&context, &context.uniform_buffer, {
-        .offset = context.frame_index * sizeof(VulkanUniformBufferObject),
-        .size = sizeof(VulkanUniformBufferObject),
+        .offset = context.frame_index * sizeof(ubo),
+        .size = sizeof(ubo),
         .data = &ubo
     });
 
@@ -644,7 +640,7 @@ void renderer_destroy_sync_objects() {
 void renderer_create_uniform_objects() {
     // Create uniform buffers
     vulkan_buffer_create(&context, {
-        .size = VULKAN_MAX_FRAMES_IN_FLIGHT * sizeof(VulkanUniformBufferObject),
+        .size = VULKAN_MAX_FRAMES_IN_FLIGHT * sizeof(RendererUniformBufferObject),
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
     }, &context.uniform_buffer);
@@ -696,8 +692,8 @@ void renderer_create_uniform_objects() {
     for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
         descriptor_buffer_infos[index] = {
             .buffer = context.uniform_buffer.handle,
-            .offset = index * sizeof(VulkanUniformBufferObject),
-            .range = sizeof(VulkanUniformBufferObject)
+            .offset = index * sizeof(RendererUniformBufferObject),
+            .range = sizeof(RendererUniformBufferObject)
         };
         descriptor_writes[index] = {
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,

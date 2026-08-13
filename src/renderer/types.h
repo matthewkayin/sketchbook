@@ -64,15 +64,6 @@ struct VulkanBuffer {
     VkDeviceMemory memory;
 };
 
-// TODO: move this into the frontend or something?
-struct VulkanUniformBufferObject {
-    mat4 model;
-    mat4 view;
-    mat4 projection;
-    uint8_t padding[64];
-};
-static_assert(sizeof(VulkanUniformBufferObject) == 256ULL, "Some Nvidia cards require this to be exactly 256 bytes.");
-
 struct VulkanContext {
     SDL_Window* window;
 
