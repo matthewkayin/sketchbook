@@ -7,6 +7,8 @@ BUILD_DIR       := bin
 OBJ_DIR         := obj
 SRC_DIR         := src
 
+C               := clang
+C_FLAGS         := -std=c11
 CXX             := clang++
 CXX_FLAGS       := -std=c++20 -Wall -Wextra -Wshadow
 LD_FLAGS        :=
@@ -57,7 +59,9 @@ else
 	UNAME_S := $(shell uname -s)
 
 	SRC_FILES := $(shell find $(SRC_DIR) -type f \( -name "*.cpp" -o -name "*.mm" \))
+	SRC_FILES += $(shell find vendor -type f \( -name "*.c" \))
 	DIRECTORIES := $(shell find src -type d)
+	DIRECTORIES += $(shell find vendor -type d)
 
 	SHADER_FILES := $(shell find $(SHADER_SRC_DIR) -type f \( -name "*.slang" \))
 	SHADER_DIRECTORIES := $(shell find $(SHADER_SRC_DIR) -type d)
@@ -142,6 +146,11 @@ compile:
 $(OBJ_DIR)/%.cpp.o: %.cpp
 	@echo   $<...
 	@$(CXX) $< $(CXX_FLAGS) -c -o $@ $(DEFINES) $(INCLUDE_FLAGS)
+
+# Compile c to object
+$(OBJ_DIR)/%.c.o: %.c
+	@echo   $<...
+	@$(C) $< $(C_FLAGS) -c -o $@ $(DEFINES) $(INCLUDE_FLAGS)
 
 # ------------------------------------------------------------------------------
 # Shader Compile

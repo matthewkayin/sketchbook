@@ -102,6 +102,10 @@ struct VulkanContext {
     VulkanBuffer index_buffer;
     VulkanBuffer uniform_buffer;
 
+    // Model vertices
+    std::vector<Vertex3d> model_vertices;
+    std::vector<uint32_t> model_indices;
+
     uint32_t frame_index;
     uint32_t image_index;
 };
