@@ -42,6 +42,10 @@ bool vulkan_buffer_create(VulkanContext* context, VulkanBufferCreateParams param
         return false;
     }
 
+    if (params.bind_on_create) {
+        vulkan_buffer_bind(context, out_buffer, 0);
+    }
+
     return true;
 }
 
@@ -95,9 +99,9 @@ void vulkan_buffer_upload_data(VulkanContext* context, VulkanBuffer* buffer, Vul
     SBK_ASSERT(vulkan_buffer_create(context, {
         .size = params.size,
         .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        .memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+        .memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        .bind_on_create = true
     }, &staging_buffer));
-    vulkan_buffer_bind(context, &staging_buffer, 0);
 
     // Load data into staging buffer
     vulkan_buffer_load_data(context, &staging_buffer, {

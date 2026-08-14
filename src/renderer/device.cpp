@@ -58,6 +58,7 @@ bool vulkan_device_create(VulkanContext* context) {
     // Query physical device properties
     vkGetPhysicalDeviceProperties(context->device.physical_device, &context->device.properties);
     log_info("Selected physical device %s.", context->device.properties.deviceName);
+    log_debug("Device min uniform buffer offset alignemnt %u.", context->device.properties.limits.minUniformBufferOffsetAlignment);
 
     // Determine MSAA sample count - defaults to 1 bit
     context->device.msaa_sample_count = VK_SAMPLE_COUNT_1_BIT;

@@ -10,8 +10,8 @@
 #include "renderer/pipeline.h"
 #include "renderer/image.h"
 #include "renderer/buffer.h"
+#include "renderer/model.h"
 #include <SDL3/SDL_vulkan.h>
-#include <tinygltf/tiny_gltf_v3.h>
 #include <vector>
 
 // Debug
@@ -32,7 +32,6 @@ void renderer_destroy_sync_objects();
 void renderer_create_uniform_objects();
 void renderer_destroy_uniform_objects();
 void renderer_recreate_swapchain();
-bool renderer_load_model();
 
 // Context
 static VulkanContext context;
@@ -123,7 +122,7 @@ bool renderer_init(SDL_Window* window) {
     renderer_create_sync_objects();
     renderer_create_uniform_objects();
 
-    if (!renderer_load_model()) {
+    if (!renderer_load_model("../res/model/teacup.glb", &context.model_vertices, &context.model_indices)) {
         return false;
     }
 
@@ -131,9 +130,9 @@ bool renderer_init(SDL_Window* window) {
     vulkan_buffer_create(&context, {
         .size = context.model_vertices.size() * sizeof(Vertex3d),
         .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .bind_on_create = true
     }, &context.vertex_buffer);
-    vulkan_buffer_bind(&context, &context.vertex_buffer, 0);
     vulkan_buffer_upload_data(&context, &context.vertex_buffer, {
         .offset = 0,
         .size = context.model_vertices.size() * sizeof(Vertex3d),
@@ -144,9 +143,9 @@ bool renderer_init(SDL_Window* window) {
     vulkan_buffer_create(&context, {
         .size = context.model_indices.size() * sizeof(uint32_t),
         .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .bind_on_create = true
     }, &context.index_buffer);
-    vulkan_buffer_bind(&context, &context.index_buffer, 0);
     vulkan_buffer_upload_data(&context, &context.index_buffer, {
         .offset = 0,
         .size = context.model_indices.size() * sizeof(uint32_t),
@@ -196,7 +195,7 @@ void renderer_on_resized() {
     renderer_recreate_swapchain();
 }
 
-void renderer_draw_frame(mat4 model, mat4 view) {
+void renderer_draw_frame(RenderPacket packet) {
     // Wait for current frame fence
     VkResult fence_result = vkWaitForFences(
         context.device.logical_device,
@@ -355,21 +354,22 @@ void renderer_draw_frame(mat4 model, mat4 view) {
     // DRAW MODEL
 
     RendererUniformBufferObject ubo {
-        .model = model,
-        .view = view,
+        .model = packet.model,
+        .view = packet.view,
         .projection = mat4::perspective(
             45.0f * SBK_DEG_TO_RAD,
             (float)context.swapchain.extent.width / (float)context.swapchain.extent.height,
             0.1f, 1000.0f),
-        .padding = {}
+        .normal = packet.model.inversed().transposed(),
+        .view_position = vec4(packet.view_position, 0.0f)
     };
 
     // This accounts for the fact that our math library is GL-style (Y coordinate inverted)
     // should probably change the math library or the coordinate system creation
     ubo.projection.data[5] *= -1;
 
-    vulkan_buffer_load_data(&context, &context.uniform_buffer, {
-        .offset = context.frame_index * sizeof(ubo),
+    vulkan_buffer_load_data(&context, &context.uniform_buffers[context.frame_index], {
+        .offset = 0,
         .size = sizeof(ubo),
         .data = &ubo
     });
@@ -449,6 +449,14 @@ void renderer_draw_frame(mat4 model, mat4 view) {
     }
 
     context.frame_index = (context.frame_index + 1) % VULKAN_MAX_FRAMES_IN_FLIGHT;
+}
+
+void renderer_set_light_data(const RendererLightData& data) {
+    vulkan_buffer_upload_data(&context, &context.light_data_buffer, {
+        .offset = 0,
+        .size = sizeof(data),
+        .data = &data
+    });
 }
 
 // DEBUG
@@ -639,12 +647,22 @@ void renderer_destroy_sync_objects() {
 
 void renderer_create_uniform_objects() {
     // Create uniform buffers
+    for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
+        vulkan_buffer_create(&context, {
+            .size = VULKAN_MAX_FRAMES_IN_FLIGHT * sizeof(RendererUniformBufferObject),
+            .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            .memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            .bind_on_create = true
+        }, &context.uniform_buffers[index]);
+    }
+
+    // Create light data buffer
     vulkan_buffer_create(&context, {
-        .size = VULKAN_MAX_FRAMES_IN_FLIGHT * sizeof(RendererUniformBufferObject),
-        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        .memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-    }, &context.uniform_buffer);
-    vulkan_buffer_bind(&context, &context.uniform_buffer, 0);
+        .size = sizeof(RendererLightData),
+        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .bind_on_create = true
+    }, &context.light_data_buffer);
 
     // Create descriptor pool
     VkDescriptorPoolSize descriptor_pool_sizes[] = {
@@ -653,7 +671,7 @@ void renderer_create_uniform_objects() {
             .descriptorCount = VULKAN_MAX_FRAMES_IN_FLIGHT
         },
         {
-            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             .descriptorCount = VULKAN_MAX_FRAMES_IN_FLIGHT
         },
     };
@@ -687,12 +705,15 @@ void renderer_create_uniform_objects() {
         context.device.logical_device, &descriptor_set_allocate_info, context.descriptor_sets));
 
     // Write descriptor sets
-    VkDescriptorBufferInfo descriptor_buffer_infos[VULKAN_MAX_FRAMES_IN_FLIGHT];
-    VkWriteDescriptorSet descriptor_writes[VULKAN_MAX_FRAMES_IN_FLIGHT];
+    const uint32_t descriptor_count = VULKAN_MAX_FRAMES_IN_FLIGHT * array_length(descriptor_pool_sizes);
+    VkDescriptorBufferInfo descriptor_buffer_infos[descriptor_count];
+    VkWriteDescriptorSet descriptor_writes[descriptor_count];
+
     for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
+        // Uniform buffer
         descriptor_buffer_infos[index] = {
-            .buffer = context.uniform_buffer.handle,
-            .offset = index * sizeof(RendererUniformBufferObject),
+            .buffer = context.uniform_buffers[index].handle,
+            .offset = 0,
             .range = sizeof(RendererUniformBufferObject)
         };
         descriptor_writes[index] = {
@@ -707,7 +728,27 @@ void renderer_create_uniform_objects() {
             .pBufferInfo = &descriptor_buffer_infos[index],
             .pTexelBufferView = nullptr
         };
+
+        // Light data storage buffer
+        descriptor_buffer_infos[VULKAN_MAX_FRAMES_IN_FLIGHT + index] = {
+            .buffer = context.light_data_buffer.handle,
+            .offset = 0,
+            .range = sizeof(RendererLightData)
+        };
+        descriptor_writes[VULKAN_MAX_FRAMES_IN_FLIGHT + index] = {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = nullptr,
+            .dstSet = context.descriptor_sets[index],
+            .dstBinding = 1,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo = nullptr,
+            .pBufferInfo = &descriptor_buffer_infos[VULKAN_MAX_FRAMES_IN_FLIGHT + index],
+            .pTexelBufferView = nullptr
+        };
     }
+
     vkUpdateDescriptorSets(
         context.device.logical_device,
         array_length(descriptor_writes), descriptor_writes, 0, nullptr);
@@ -715,7 +756,10 @@ void renderer_create_uniform_objects() {
 
 void renderer_destroy_uniform_objects() {
     vkDestroyDescriptorPool(context.device.logical_device, context.descriptor_pool, context.allocator);
-    vulkan_buffer_destroy(&context, &context.uniform_buffer);
+    for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
+        vulkan_buffer_destroy(&context, &context.uniform_buffers[index]);
+    }
+    vulkan_buffer_destroy(&context, &context.light_data_buffer);
 }
 
 void renderer_recreate_swapchain() {
@@ -727,126 +771,4 @@ void renderer_recreate_swapchain() {
     renderer_create_sync_objects();
 
     log_info("Swapchain recreated successfully.");
-}
-
-LogLevel renderer_tg3_error_severity_to_log_level(tg3_severity severity) {
-    switch (severity) {
-        case TG3_SEVERITY_ERROR:
-            return LOG_LEVEL_ERROR;
-        case TG3_SEVERITY_WARNING:
-            return LOG_LEVEL_WARN;
-        case TG3_SEVERITY_INFO:
-            return LOG_LEVEL_INFO;
-    }
-}
-
-uint32_t renderer_tg3_get_attribute_index(const tg3_primitive& primitive, const char* key) {
-    uint32_t attribute_index;
-    for (attribute_index = 0; attribute_index < primitive.attributes_count; attribute_index++) {
-        const tg3_str_int_pair& attribute = primitive.attributes[attribute_index];
-        if (strcmp(attribute.key.data, key) == 0) {
-            break;
-        }
-    }
-
-    return attribute_index;
-}
-
-bool renderer_load_model() {
-    tg3_parse_options options;
-    tg3_error_stack error_stack;
-    tg3_model model;
-
-    uint32_t mesh_index;
-    const tg3_mesh* mesh;
-
-    bool success = true;
-
-    tg3_parse_options_init(&options);
-    tg3_error_stack_init(&error_stack);
-
-    const char* model_path = "../model/teacup.glb";
-    tg3_error_code error = tg3_parse_file(&model, &error_stack, model_path, strlen(model_path), &options);
-    if (error != TG3_OK) {
-        for (uint32_t index = 0; index < error_stack.count; index++) {
-            LogLevel log_level = renderer_tg3_error_severity_to_log_level(error_stack.entries[index].severity);
-            const char* error_message = error_stack.entries[index].message
-                ? error_stack.entries[index].message
-                : "(null)";
-            logger_output(log_level, "TinyGLTF encountered error reading %s: %s", model_path, error_message);
-        }
-
-        success = false;
-        goto end;
-    }
-
-    for (mesh_index = 0; mesh_index < model.meshes_count; mesh_index++) {
-        mesh = &model.meshes[mesh_index];
-        for (uint32_t primitive_index = 0; primitive_index < mesh->primitives_count; primitive_index++) {
-            const tg3_primitive& primitive = mesh->primitives[primitive_index];
-
-            // Get vertex positions
-            uint32_t attribute_index = renderer_tg3_get_attribute_index(primitive, "POSITION");
-            if (attribute_index == primitive.attributes_count) {
-                log_error("Error loading model %s. Mesh %u primitive %u has no attribute POSITION.", model_path, mesh_index, primitive_index);
-                success = false;
-                goto end;
-            }
-            const tg3_str_int_pair& position_attribute = primitive.attributes[attribute_index];
-            const tg3_accessor& position_accessor = model.accessors[position_attribute.value];
-            const tg3_buffer_view& position_buffer_view = model.buffer_views[position_accessor.buffer_view];
-            const tg3_buffer& position_buffer = model.buffers[position_buffer_view.buffer];
-
-            // Store vertices
-            const size_t position_stride = sizeof(vec3);
-            for (uint32_t index = 0; index < position_accessor.count; index++) {
-                const float* position_data = (float*)(position_buffer.data.data + position_buffer_view.byte_offset + position_accessor.byte_offset + (index * position_stride));
-
-                context.model_vertices.push_back({
-                    .position = vec3(position_data[0], position_data[1], position_data[2]),
-                    .normal = vec3(0.0f, 0.0f, 0.0f),
-                    .tex_coord = vec2(0.0f, 0.0f)
-                });
-            }
-
-            // Get indices
-            const tg3_accessor& index_accessor = model.accessors[primitive.indices];
-            const tg3_buffer_view& index_buffer_view = model.buffer_views[index_accessor.buffer_view];
-            const tg3_buffer& index_buffer = model.buffers[index_buffer_view.buffer];
-
-            // Store indices
-            const uint8_t* index_data_ptr = index_buffer.data.data + index_buffer_view.byte_offset + index_accessor.byte_offset;
-            for (uint32_t index = 0; index < index_accessor.count; index++) {
-                switch (index_accessor.component_type) {
-                    case TG3_COMPONENT_TYPE_UNSIGNED_BYTE: {
-                        context.model_indices.push_back((uint32_t)(*index_data_ptr));
-                        index_data_ptr += sizeof(uint8_t);
-                        break;
-                    }
-                    case TG3_COMPONENT_TYPE_UNSIGNED_SHORT: {
-                        context.model_indices.push_back((uint32_t)(*((uint16_t*)index_data_ptr)));
-                        index_data_ptr += sizeof(uint16_t);
-                        break;
-                    }
-                    case TG3_COMPONENT_TYPE_UNSIGNED_INT: {
-                        context.model_indices.push_back(*((uint32_t*)index_data_ptr));
-                        index_data_ptr += sizeof(uint32_t);
-                        break;
-                    }
-                    default: {
-                        log_error("Failed to load model %s. Unhandled index component type %u.", index_accessor.component_type);
-                        success = false;
-                        goto end;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-end:
-    tg3_model_free(&model);
-    tg3_error_stack_free(&error_stack);
-
-    return success;
 }

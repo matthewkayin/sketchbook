@@ -209,6 +209,13 @@ bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out
             .descriptorCount = 1,
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
             .pImmutableSamplers = nullptr
+        },
+        {
+            .binding = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr
         }
     };
     VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info {

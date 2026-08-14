@@ -264,10 +264,15 @@ struct vec4 {
         z = p_z;
         w = p_w;
     }
+    vec4(const vec3& v3, float p_w) {
+        x = v3.x;
+        y = v3.y;
+        z = v3.z;
+        w = p_w;
+    }
 
-    vec3 to_vec3() const { return vec3(x, y, z); }
-    static vec4 from_vec3(const vec3& src, float p_w) {
-        return vec4(src.x, src.y, src.z, p_w);
+    vec3 to_vec3() const {
+        return vec3(x, y, z);
     }
 
     bool operator==(const vec4& other) const {
@@ -285,7 +290,9 @@ struct vec4 {
         }
         return true;
     }
-    bool operator!=(const vec4& other) const { return !((*this) == other); }
+    bool operator!=(const vec4& other) const {
+        return !((*this) == other);
+    }
 
     vec4 operator+(const vec4& other) const {
         return vec4(x + other.x, y + other.y, z + other.z, w + other.w);

@@ -6,6 +6,7 @@ struct VulkanBufferCreateParams {
     uint64_t size;
     VkBufferUsageFlags usage;
     VkMemoryPropertyFlags memory_properties;
+    bool bind_on_create;
 };
 
 struct VulkanBufferMapMemoryParams {

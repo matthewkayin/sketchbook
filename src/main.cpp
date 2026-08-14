@@ -7,8 +7,8 @@
 #include <algorithm>
 
 static const float CAMERA_SCROLL_SPEED = 100.0f;
-static const float CAMERA_YAW_SPEED = 50.0f * SBK_DEG_TO_RAD;
-static const float CAMERA_PITCH_SPEED = 50.0f * SBK_DEG_TO_RAD;
+static const float CAMERA_YAW_SPEED = -75.0f * SBK_DEG_TO_RAD;
+static const float CAMERA_PITCH_SPEED = 75.0f * SBK_DEG_TO_RAD;
 
 struct AppState {
     SDL_Window* window;
@@ -40,6 +40,11 @@ int main() {
     state.camera_yaw = 45.0f * SBK_DEG_TO_RAD;
     state.camera_distance = 10.0f;
 
+    renderer_set_light_data({
+        .light_position = vec4(-2.0f, 2.0f, 2.0f, 0.0f),
+        .light_color = vec4(1.0f, 1.0f, 1.0f, 1.0f)
+    });
+
     while (app_is_running()) {
         input_poll_events();
 
@@ -61,9 +66,11 @@ int main() {
             state.camera_distance * cos(state.camera_pitch) * cos(state.camera_yaw)
         );
 
-        mat4 model = mat4::identity();
-        mat4 view = mat4::look_at(camera_position, vec3(0.0f, 0.0f, 0.0f), vec3::up());
-        renderer_draw_frame(model, view);
+        renderer_draw_frame({
+            .model = mat4::identity(),
+            .view = mat4::look_at(camera_position, vec3(0.0f, 0.0f, 0.0f), vec3::up()),
+            .view_position = camera_position
+        });
     }
 
     app_quit();

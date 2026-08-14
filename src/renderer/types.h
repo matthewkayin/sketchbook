@@ -91,7 +91,8 @@ struct VulkanContext {
     // Vertex and index buffers
     VulkanBuffer vertex_buffer;
     VulkanBuffer index_buffer;
-    VulkanBuffer uniform_buffer;
+    VulkanBuffer uniform_buffers[VULKAN_MAX_FRAMES_IN_FLIGHT];
+    VulkanBuffer light_data_buffer;
 
     // Model vertices
     std::vector<Vertex3d> model_vertices;
