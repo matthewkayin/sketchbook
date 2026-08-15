@@ -47,6 +47,8 @@ VertexOutput vertex_main(VertexInput input) {
 
 [shader("fragment")]
 float4 fragment_main(VertexOutput vertex_output): SV_Target {
+    float3 object_color = float3(1.0, 1.0, 1.0);
+
     // Ambient
     float ambient_strength = 0.1;
     float3 ambient = light_data[0].light_color.xyz * ambient_strength;
@@ -54,15 +56,33 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
     // Diffuse
     float3 normal = normalize(vertex_output.normal);
     float3 light_direction = normalize(vertex_output.world_position - light_data[0].light_position.xyz);
-    float diffuse_strength = max(dot(normal, light_direction), 0.0);
-    float3 diffuse = light_data[0].light_color.xyz * diffuse_strength;
+    float diffuse_intensity = max(dot(normal, light_direction), 0.0);
 
     // Specular
     float3 view_direction = normalize(ubo.view_position.xyz - vertex_output.world_position);
     float3 reflect_direction = reflect(-light_direction, normal);
-    float specular_strength = pow(max(dot(view_direction, reflect_direction), 0.0), 32) * 0.5;
-    float3 specular = light_data[0].light_color.xyz * specular_strength;
+    float specular_intensity = pow(max(dot(view_direction, reflect_direction), 0.0), 32) * 0.5;
 
-    float3 object_color = texture0.Sample(vertex_output.tex_coord).xyz;
-    return float4((ambient + diffuse + specular) * object_color, 1.0);
+    // Combine diffuse and specular into intensity
+    // float intensity = saturate(diffuse_intensity + specular_intensity);
+    float intensity = saturate(diffuse_intensity);
+    float tone = (1.0 - intensity) * 6.0;
+    int level_a = int(floor(tone));
+    float blend_weight = frac(tone);
+
+    // Sample
+    float3 hatch0 = texture0.Sample(vertex_output.tex_coord).rgb;
+    float3 hatch1 = texture1.Sample(vertex_output.tex_coord).rgb;
+
+    float hatch_colors[7];
+    hatch_colors[0] = 1.0; // No hatch (just white / paper)
+    hatch_colors[1] = hatch0.r;
+    hatch_colors[2] = hatch0.g;
+    hatch_colors[3] = hatch0.b;
+    hatch_colors[4] = hatch1.r;
+    hatch_colors[5] = hatch1.g;
+    hatch_colors[6] = hatch1.b;
+
+    float hatch_color = lerp(hatch_colors[level_a], hatch_colors[level_a + 1], blend_weight);
+    return float4(hatch_color, hatch_color, hatch_color, 1.0);
 }
