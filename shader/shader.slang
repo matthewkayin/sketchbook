@@ -21,6 +21,9 @@ struct LightData {
 };
 StructuredBuffer<LightData> light_data;
 
+Sampler2D texture0;
+Sampler2D texture1;
+
 struct VertexOutput {
     float4 sv_position: SV_Position;
     float3 world_position;
@@ -60,6 +63,6 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
     float specular_strength = pow(max(dot(view_direction, reflect_direction), 0.0), 32) * 0.5;
     float3 specular = light_data[0].light_color.xyz * specular_strength;
 
-    float3 object_color = float3(1.0, 1.0, 1.0);
+    float3 object_color = texture0.Sample(vertex_output.tex_coord).xyz;
     return float4((ambient + diffuse + specular) * object_color, 1.0);
 }

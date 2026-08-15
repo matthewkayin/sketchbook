@@ -45,6 +45,8 @@ struct VulkanImageTransitionLayoutExtParams {
 bool vulkan_image_create(VulkanContext* context, VulkanImageCreateParams params, VulkanImage* out_image);
 bool vulkan_image_create_texture(VulkanContext* context, const char* path, VulkanImage* out_image);
 bool vulkan_image_generate_mipmaps(VulkanContext* context, VkCommandBuffer command_buffer, VulkanImage* image);
+bool vulkan_image_create_hatch_texture(VulkanContext* context, const char* const* paths, VulkanImage* out_images);
+void vulkan_image_generate_hatch_mipmaps(VkCommandBuffer command_buffer, VulkanImage* image);
 void vulkan_image_destroy(VulkanContext* context, VulkanImage* image);
 void vulkan_image_view_create(VulkanContext* context, VulkanImageViewCreateParams params, VkImageView* out_image_view);
 void vulkan_image_transition_layout(VulkanImageTransitionLayoutParams params);

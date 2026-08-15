@@ -61,17 +61,27 @@ bool renderer_load_model(const char* path, std::vector<Vertex3d>* out_vertices, 
                 goto end;
             }
 
+            // Get tex coord attribute
+            RendererModelAttribute tex_coord_attribute;
+            bool has_tex_coords = renderer_tg3_get_model_attribute(&model, &primitive, "TEXCOORD_0", &tex_coord_attribute);
+            if (!has_tex_coords) {
+                log_warn("Model %s has no attribute TEXCOORD_0.", path);
+            }
+
             // Store vertices
-            const size_t position_stride = sizeof(vec3);
-            const size_t normal_stride = sizeof(vec3);
             for (uint32_t index = 0; index < position_attribute.accessor->count; index++) {
-                const float* position_data = (float*)(position_attribute.buffer->data.data + position_attribute.buffer_view->byte_offset + position_attribute.accessor->byte_offset + (index * position_stride));
-                const float* normal_data = (float*)(normal_attribute.buffer->data.data + normal_attribute.buffer_view->byte_offset + normal_attribute.accessor->byte_offset + (index * normal_stride));
+                const float* position_data = (float*)(position_attribute.buffer->data.data + position_attribute.buffer_view->byte_offset + position_attribute.accessor->byte_offset + (index * sizeof(vec3)));
+                const float* normal_data = (float*)(normal_attribute.buffer->data.data + normal_attribute.buffer_view->byte_offset + normal_attribute.accessor->byte_offset + (index * sizeof(vec3)));
+                const float* tex_coord_data = has_tex_coords
+                    ? (float*)(tex_coord_attribute.buffer->data.data + tex_coord_attribute.buffer_view->byte_offset + tex_coord_attribute.accessor->byte_offset + (index * sizeof(vec2)))
+                    : nullptr;
 
                 out_vertices->push_back({
                     .position = vec3(position_data[0], position_data[1], position_data[2]),
                     .normal = vec3(normal_data[0], normal_data[1], normal_data[2]),
-                    .tex_coord = vec2(0.0f, 0.0f)
+                    .tex_coord = has_tex_coords
+                        ? vec2(tex_coord_data[0], tex_coord_data[1])
+                        : vec2(0.0f, 0.0f)
                 });
             }
 

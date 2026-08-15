@@ -94,6 +94,7 @@ else
 
 		LD_FLAGS += \
 			-lSDL3 \
+			-lSDL3_image \
 			-lvulkan
 	endif
 

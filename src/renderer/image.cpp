@@ -6,6 +6,7 @@
 #include "renderer/util.h"
 #include "vulkan/vulkan_core.h"
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_image.h>
 #include <cmath>
 
 bool vulkan_image_create(VulkanContext* context, VulkanImageCreateParams params, VulkanImage* out_image) {
@@ -108,9 +109,9 @@ bool vulkan_image_create_texture(VulkanContext* context, const char* path, Vulka
     vulkan_buffer_create(context, {
         .size = image_size,
         .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        .memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        .memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .bind_on_create = true
     }, &staging_buffer);
-    vulkan_buffer_bind(context, &staging_buffer, 0);
     void* staging_buffer_data = vulkan_buffer_map_memory(context, &staging_buffer, {
         .offset = 0,
         .size = VK_WHOLE_SIZE
@@ -130,6 +131,7 @@ bool vulkan_image_create_texture(VulkanContext* context, const char* path, Vulka
         .aspect = VK_IMAGE_ASPECT_COLOR_BIT,
         .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
     }, out_image);
+    // TODO: this does not clean up the staging buffer
     if (!image_create_succeeded) {
         return false;
     }
@@ -343,10 +345,370 @@ bool vulkan_image_generate_mipmaps(VulkanContext* context, VkCommandBuffer comma
     return true;
 }
 
+bool vulkan_image_create_hatch_texture(VulkanContext* context, const char* const* paths, VulkanImage* out_images) {
+    bool success = true;
+    SDL_Surface* hatch_surfaces[VULKAN_HATCH_TEXTURE_CHANNEL_COUNT];
+    SDL_Surface* packed_hatch_surfaces[VULKAN_HATCH_TEXTURE_IMAGE_COUNT];
+    SDL_IOStream* io_stream = nullptr;
+
+    VulkanBuffer staging_buffers[VULKAN_HATCH_TEXTURE_IMAGE_COUNT];
+
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_CHANNEL_COUNT; index++) {
+        hatch_surfaces[index] = nullptr;
+    }
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; index++) {
+        packed_hatch_surfaces[index] = nullptr;
+        staging_buffers[index].handle = VK_NULL_HANDLE;
+        out_images[index].handle = VK_NULL_HANDLE;
+    }
+
+    // Open up each of the hatch surfaces
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_CHANNEL_COUNT; index++) {
+        // Load image from file
+        io_stream = SDL_IOFromFile(paths[index], "rb");
+        hatch_surfaces[index] = IMG_LoadJPG_IO(io_stream);
+        SDL_CloseIO(io_stream);
+
+        if (!hatch_surfaces[index]) {
+            log_error("Failed to load hatch image %s.", paths[index]);
+            success = false;
+            goto end;
+        }
+
+        // Check to make sure hatch surface dimensions match the others
+        if (index != 0 &&
+            ((hatch_surfaces[index]->w != hatch_surfaces[0]->w) ||
+             (hatch_surfaces[index]->h != hatch_surfaces[0]->h))
+        ) {
+            log_error("Dimensions of hatch image image %s does not match hatch image %s.", paths[index], paths[0]);
+            success = false;
+            goto end;
+        }
+
+        // Convert image pixel format if necessary
+        if (hatch_surfaces[index]->format != SDL_PIXELFORMAT_ABGR8888) {
+            SDL_Surface* old_surface = hatch_surfaces[index];
+            hatch_surfaces[index] = SDL_ConvertSurface(old_surface, SDL_PIXELFORMAT_ABGR8888);
+            SDL_DestroySurface(old_surface);
+        }
+        if (!hatch_surfaces[index]) {
+            log_error("Failed to convert image %s: %s", paths[index], SDL_GetError());
+            success = false;
+            goto end;
+        }
+
+        // Flip image vertically
+        if (!SDL_FlipSurface(hatch_surfaces[index], SDL_FLIP_VERTICAL)) {
+            log_error("Failed to fliip image %s vertically: %s.", paths[index], SDL_GetError());
+            success = false;
+            goto end;
+        }
+    }
+
+    // Pack the hatch surfaces into two
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; index++) {
+        packed_hatch_surfaces[index] = SDL_CreateSurface(hatch_surfaces[0]->w, hatch_surfaces[0]->h, hatch_surfaces[0]->format);
+        if (!packed_hatch_surfaces[index]) {
+            log_error("Failed to create packed hatch surface: %s.", SDL_GetError());
+            success = false;
+            goto end;
+        }
+
+        const SDL_PixelFormatDetails* format_details = SDL_GetPixelFormatDetails(packed_hatch_surfaces[index]->format);
+        SDL_LockSurface(packed_hatch_surfaces[index]);
+
+        uint32_t channel_base_index = index * VULKAN_HATCH_CHANNELS_PER_IMAGE;
+        uint32_t* packed_pixels = (uint32_t*)packed_hatch_surfaces[index]->pixels;
+
+        for (int y = 0; y < packed_hatch_surfaces[index]->h; y++) {
+            for (int x = 0; x < packed_hatch_surfaces[index]->w; x++) {
+                // Since each image is grayscale, extract the red value to use as the "blackness" of each stroke
+                uint8_t channel_colors[VULKAN_HATCH_CHANNELS_PER_IMAGE];
+                for (uint32_t channel_index = 0; channel_index < VULKAN_HATCH_CHANNELS_PER_IMAGE; channel_index++) {
+                    uint32_t* channel_pixels = (uint32_t*)hatch_surfaces[channel_base_index + channel_index]->pixels;
+                    uint32_t channel_pixel = channel_pixels[x + (y * packed_hatch_surfaces[index]->w)];
+                    SDL_GetRGBA(channel_pixel, format_details, nullptr, &channel_colors[channel_index], nullptr, nullptr, nullptr);
+                }
+
+                packed_pixels[x + (y * packed_hatch_surfaces[index]->w)] = SDL_MapRGBA(format_details, NULL, channel_colors[0], channel_colors[1], channel_colors[2], 255);
+            }
+        }
+
+        SDL_UnlockSurface(packed_hatch_surfaces[index]);
+    }
+
+    // Create a Vulkan image for each packed surface
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; index++) {
+        // Copy image data into a staging buffer
+        const size_t image_size = packed_hatch_surfaces[index]->pitch * packed_hatch_surfaces[index]->h;
+        vulkan_buffer_create(context, {
+            .size = image_size,
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            .memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+            .bind_on_create = true
+        }, &staging_buffers[index]);
+        void* staging_buffer_data = vulkan_buffer_map_memory(context, &staging_buffers[index], {
+            .offset = 0,
+            .size = VK_WHOLE_SIZE
+        });
+        memcpy(staging_buffer_data, packed_hatch_surfaces[index]->pixels, image_size);
+        vulkan_buffer_unmap_memory(context, &staging_buffers[index]);
+
+        // Create image
+        bool image_create_succeeded = vulkan_image_create(context, {
+            .width = (uint32_t)packed_hatch_surfaces[index]->w,
+            .height = (uint32_t)packed_hatch_surfaces[index]->h,
+            .mip_levels = (uint32_t)std::floor(std::log2(std::max(packed_hatch_surfaces[index]->w, packed_hatch_surfaces[index]->h))) + 1U,
+            .format = VK_FORMAT_R8G8B8A8_UNORM,
+            .msaa_sample_count = VK_SAMPLE_COUNT_1_BIT,
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            .aspect = VK_IMAGE_ASPECT_COLOR_BIT,
+            .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        }, &out_images[index]);
+        if (!image_create_succeeded) {
+            success = false;
+            goto end;
+        }
+
+        // Copy image data to the Vulkan image
+        VkCommandBuffer temp_command_buffer;
+        vulkan_command_buffer_begin_single_use(context, &temp_command_buffer);
+
+        // Transition image layout to TRANSFER_DST
+        vulkan_image_transition_layout({
+            .command_buffer = temp_command_buffer,
+            .image = &out_images[index],
+            .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .new_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+        });
+
+        // Copy from buffer into image
+        VkBufferImageCopy copy_region {
+            .bufferOffset = 0,
+            .bufferRowLength = 0,
+            .bufferImageHeight = 0,
+            .imageSubresource = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            },
+            .imageOffset = {
+                .x = 0, .y = 0, .z = 0
+            },
+            .imageExtent = {
+                .width = (uint32_t)packed_hatch_surfaces[index]->w,
+                .height = (uint32_t)packed_hatch_surfaces[index]->h,
+                .depth = 1
+            }
+        };
+
+        vkCmdCopyBufferToImage(
+            temp_command_buffer,
+            staging_buffers[index].handle,
+            out_images[index].handle,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &copy_region);
+
+        vulkan_image_generate_hatch_mipmaps(temp_command_buffer, &out_images[index]);
+        vulkan_command_buffer_end_single_use(context, &temp_command_buffer);
+    }
+
+end:
+    // CLEANUP
+
+    // Destroy hatch surfaces
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_CHANNEL_COUNT; index++) {
+        if (hatch_surfaces[index]) {
+            SDL_DestroySurface(hatch_surfaces[index]);
+        }
+    }
+
+    // Destroy packed hatch surfaces
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; index++) {
+        if (packed_hatch_surfaces[index]) {
+            SDL_DestroySurface(packed_hatch_surfaces[index]);
+        }
+    }
+
+    // Destroy staging buffers
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; index++) {
+        if (staging_buffers[index].handle != VK_NULL_HANDLE) {
+            vulkan_buffer_destroy(context, &staging_buffers[index]);
+        }
+    }
+
+    // On failure, destroy any non-null images
+    if (!success) {
+        for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; index++) {
+            if (out_images[index].handle != VK_NULL_HANDLE) {
+                vulkan_image_destroy(context, &out_images[index]);
+            }
+        }
+    }
+
+    return success;
+}
+
+void vulkan_image_generate_hatch_mipmaps(VkCommandBuffer command_buffer, VulkanImage* image) {
+    int mip_width = (int)image->width;
+    int mip_height = (int)image->height;
+    for (uint32_t level = 1; level < image->mip_levels; level++) {
+        // Transition previous mip from TRANSFER_DST_OPTIMAL to TRANSFER_SRC_OPTIMAL (to be read from)
+        VkImageMemoryBarrier2 mip_src_barrier {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = image->handle,
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = level - 1,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            }
+        };
+        VkDependencyInfo dependency_info {
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .pNext = nullptr,
+            .dependencyFlags = 0,
+            .memoryBarrierCount = 0,
+            .pMemoryBarriers = nullptr,
+            .bufferMemoryBarrierCount = 0,
+            .pBufferMemoryBarriers = nullptr,
+            .imageMemoryBarrierCount = 1,
+            .pImageMemoryBarriers = &mip_src_barrier
+        };
+        vkCmdPipelineBarrier2(command_buffer, &dependency_info);
+
+        // Blit previous mip onto current mip
+        // The src and dst offset are the same because we're talking a subsection of src for the dst
+        int half_mip_width = 1 < mip_width ? mip_width / 2 : 1;
+        int half_mip_height = 1 < mip_height ? mip_height / 2 : 1;
+        VkImageBlit2 image_blit {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_BLIT_2,
+            .pNext = nullptr,
+            .srcSubresource = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = level - 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            },
+            .srcOffsets = {
+                {  .x = 0, .y = 0, .z = 0  },
+                {
+                    .x = half_mip_width,
+                    .y = half_mip_height,
+                    .z = 1
+                }
+            },
+            .dstSubresource = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .mipLevel = level,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            },
+            .dstOffsets = {
+                {  .x = 0, .y = 0, .z = 0  },
+                {
+                    .x = half_mip_width,
+                    .y = half_mip_height,
+                    .z = 1
+                }
+            }
+        };
+        VkBlitImageInfo2 blit_info {
+            .sType = VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2,
+            .pNext = nullptr,
+            .srcImage = image->handle,
+            .srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .dstImage = image->handle,
+            .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .regionCount = 1,
+            .pRegions = &image_blit,
+            .filter = VK_FILTER_NEAREST
+        };
+        vkCmdBlitImage2(command_buffer, &blit_info);
+
+        // Reduce mip size
+        if (1 < mip_width) {
+            mip_width /= 2;
+        }
+        if (1 < mip_height) {
+            mip_height /= 2;
+        }
+    }
+
+    // Transition mips to SHADER_READ_ONLY_OPTIMAL
+    VkImageMemoryBarrier2 mip_read_only_barriers[] = {
+        {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = image->handle,
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = 0,
+                .levelCount = image->mip_levels - 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            }
+        },
+        {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+            .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = image->handle,
+            .subresourceRange = {
+                .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                .baseMipLevel = image->mip_levels - 1,
+                .levelCount = 1,
+                .baseArrayLayer = 0,
+                .layerCount = 1
+            }
+        }
+    };
+    VkDependencyInfo dependency_info {
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .pNext = nullptr,
+        .dependencyFlags = 0,
+        .memoryBarrierCount = 0,
+        .pMemoryBarriers = nullptr,
+        .bufferMemoryBarrierCount = 0,
+        .pBufferMemoryBarriers = nullptr,
+        .imageMemoryBarrierCount = array_length(mip_read_only_barriers),
+        .pImageMemoryBarriers = mip_read_only_barriers
+    };
+    vkCmdPipelineBarrier2(command_buffer, &dependency_info);
+}
+
 void vulkan_image_destroy(VulkanContext* context, VulkanImage* image) {
     vkDestroyImageView(context->device.logical_device, image->view, context->allocator);
     vkFreeMemory(context->device.logical_device, image->memory, context->allocator);
     vkDestroyImage(context->device.logical_device, image->handle, context->allocator);
+    image->handle = VK_NULL_HANDLE;
 }
 
 void vulkan_image_view_create(VulkanContext* context, VulkanImageViewCreateParams params, VkImageView* out_image_view) {

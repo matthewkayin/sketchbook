@@ -8,6 +8,10 @@
 
 const uint32_t VULKAN_MAX_FRAMES_IN_FLIGHT = 2U;
 
+const uint32_t VULKAN_HATCH_TEXTURE_CHANNEL_COUNT = 6U;
+const uint32_t VULKAN_HATCH_TEXTURE_IMAGE_COUNT = 2U;
+const uint32_t VULKAN_HATCH_CHANNELS_PER_IMAGE = VULKAN_HATCH_TEXTURE_CHANNEL_COUNT / VULKAN_HATCH_TEXTURE_IMAGE_COUNT;
+
 #define VK_CHECK(expr)                  \
     {                                   \
         SBK_ASSERT(expr == VK_SUCCESS); \
@@ -93,6 +97,10 @@ struct VulkanContext {
     VulkanBuffer index_buffer;
     VulkanBuffer uniform_buffers[VULKAN_MAX_FRAMES_IN_FLIGHT];
     VulkanBuffer light_data_buffer;
+
+    // Hatch textures
+    VulkanImage hatch_textures[VULKAN_HATCH_TEXTURE_IMAGE_COUNT];
+    VkSampler texture_sampler;
 
     // Model vertices
     std::vector<Vertex3d> model_vertices;

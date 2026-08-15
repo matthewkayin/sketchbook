@@ -32,6 +32,8 @@ void renderer_destroy_sync_objects();
 void renderer_create_uniform_objects();
 void renderer_destroy_uniform_objects();
 void renderer_recreate_swapchain();
+void renderer_create_texture_sampler();
+void renderer_destroy_texture_sampler();
 
 // Context
 static VulkanContext context;
@@ -120,6 +122,21 @@ bool renderer_init(SDL_Window* window) {
         context.graphics_command_buffers));
 
     renderer_create_sync_objects();
+
+    // Load hatch textures
+    const char* hatch_texture_paths[] = {
+        "../res/texture/hatch0.jpg",
+        "../res/texture/hatch1.jpg",
+        "../res/texture/hatch2.jpg",
+        "../res/texture/hatch3.jpg",
+        "../res/texture/hatch4.jpg",
+        "../res/texture/hatch5.jpg"
+    };
+    if (!vulkan_image_create_hatch_texture(&context, hatch_texture_paths, context.hatch_textures)) {
+        return false;
+    }
+
+    renderer_create_texture_sampler();
     renderer_create_uniform_objects();
 
     if (!renderer_load_model("../res/model/teacup.glb", &context.model_vertices, &context.model_indices)) {
@@ -164,6 +181,9 @@ void renderer_quit() {
     vulkan_buffer_destroy(&context, &context.vertex_buffer);
     vulkan_buffer_destroy(&context, &context.index_buffer);
     renderer_destroy_uniform_objects();
+    renderer_destroy_texture_sampler();
+    vulkan_image_destroy(&context, &context.hatch_textures[0]);
+    vulkan_image_destroy(&context, &context.hatch_textures[1]);
     renderer_destroy_sync_objects();
     vkFreeCommandBuffers(
         context.device.logical_device,
@@ -674,6 +694,10 @@ void renderer_create_uniform_objects() {
             .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             .descriptorCount = VULKAN_MAX_FRAMES_IN_FLIGHT
         },
+        {
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = VULKAN_MAX_FRAMES_IN_FLIGHT * VULKAN_HATCH_TEXTURE_IMAGE_COUNT
+        }
     };
     VkDescriptorPoolCreateInfo descriptor_pool_create_info {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
@@ -705,18 +729,18 @@ void renderer_create_uniform_objects() {
         context.device.logical_device, &descriptor_set_allocate_info, context.descriptor_sets));
 
     // Write descriptor sets
-    const uint32_t descriptor_count = VULKAN_MAX_FRAMES_IN_FLIGHT * array_length(descriptor_pool_sizes);
-    VkDescriptorBufferInfo descriptor_buffer_infos[descriptor_count];
-    VkWriteDescriptorSet descriptor_writes[descriptor_count];
+    std::vector<VkWriteDescriptorSet> descriptor_writes;
 
+    // Uniform buffer descriptors
+    VkDescriptorBufferInfo uniform_buffer_infos[VULKAN_MAX_FRAMES_IN_FLIGHT];
     for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
-        // Uniform buffer
-        descriptor_buffer_infos[index] = {
+        uniform_buffer_infos[index] = {
             .buffer = context.uniform_buffers[index].handle,
             .offset = 0,
             .range = sizeof(RendererUniformBufferObject)
         };
-        descriptor_writes[index] = {
+
+        descriptor_writes.push_back({
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .pNext = nullptr,
             .dstSet = context.descriptor_sets[index],
@@ -725,17 +749,19 @@ void renderer_create_uniform_objects() {
             .descriptorCount = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             .pImageInfo = nullptr,
-            .pBufferInfo = &descriptor_buffer_infos[index],
+            .pBufferInfo = &uniform_buffer_infos[index],
             .pTexelBufferView = nullptr
-        };
+        });
+    }
 
-        // Light data storage buffer
-        descriptor_buffer_infos[VULKAN_MAX_FRAMES_IN_FLIGHT + index] = {
-            .buffer = context.light_data_buffer.handle,
-            .offset = 0,
-            .range = sizeof(RendererLightData)
-        };
-        descriptor_writes[VULKAN_MAX_FRAMES_IN_FLIGHT + index] = {
+    // Light data storage buffer descriptors
+    VkDescriptorBufferInfo light_data_buffer_info {
+        .buffer = context.light_data_buffer.handle,
+        .offset = 0,
+        .range = sizeof(RendererLightData)
+    };
+    for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
+        descriptor_writes.push_back({
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .pNext = nullptr,
             .dstSet = context.descriptor_sets[index],
@@ -744,14 +770,36 @@ void renderer_create_uniform_objects() {
             .descriptorCount = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             .pImageInfo = nullptr,
-            .pBufferInfo = &descriptor_buffer_infos[VULKAN_MAX_FRAMES_IN_FLIGHT + index],
+            .pBufferInfo = &light_data_buffer_info,
             .pTexelBufferView = nullptr
-        };
+        });
     }
 
-    vkUpdateDescriptorSets(
-        context.device.logical_device,
-        array_length(descriptor_writes), descriptor_writes, 0, nullptr);
+    // Hatch texture combined image sampler descriptors
+    VkDescriptorImageInfo image_infos[VULKAN_MAX_FRAMES_IN_FLIGHT];
+    for (uint32_t image_index = 0; image_index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; image_index++) {
+        image_infos[image_index] = {
+            .sampler = context.texture_sampler,
+            .imageView = context.hatch_textures[image_index].view,
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+        };
+        for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
+            descriptor_writes.push_back({
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .pNext = nullptr,
+                .dstSet = context.descriptor_sets[index],
+                .dstBinding = 2 + image_index,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &image_infos[image_index],
+                .pBufferInfo = nullptr,
+                .pTexelBufferView = nullptr
+            });
+        }
+    }
+
+    vkUpdateDescriptorSets(context.device.logical_device, descriptor_writes.size(), descriptor_writes.data(), 0, nullptr);
 }
 
 void renderer_destroy_uniform_objects() {
@@ -771,4 +819,37 @@ void renderer_recreate_swapchain() {
     renderer_create_sync_objects();
 
     log_info("Swapchain recreated successfully.");
+}
+
+void renderer_create_texture_sampler() {
+    // Create texture sample
+    VkSamplerCreateInfo sampler_create_info {
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .magFilter = VK_FILTER_LINEAR,
+        .minFilter = VK_FILTER_LINEAR,
+        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+        .mipLodBias = 0.0f,
+        .anisotropyEnable = VK_TRUE,
+        .maxAnisotropy = context.device.properties.limits.maxSamplerAnisotropy,
+        .compareEnable = VK_FALSE,
+        .compareOp = VK_COMPARE_OP_ALWAYS,
+        .minLod = 0.0f,
+        .maxLod = VK_LOD_CLAMP_NONE,
+        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+        .unnormalizedCoordinates = VK_FALSE,
+    };
+    VK_CHECK(vkCreateSampler(
+        context.device.logical_device,
+        &sampler_create_info,
+        context.allocator,
+        &context.texture_sampler));
+}
+
+void renderer_destroy_texture_sampler() {
+    vkDestroySampler(context.device.logical_device, context.texture_sampler, context.allocator);
 }
