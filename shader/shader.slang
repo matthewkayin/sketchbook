@@ -47,24 +47,12 @@ VertexOutput vertex_main(VertexInput input) {
 
 [shader("fragment")]
 float4 fragment_main(VertexOutput vertex_output): SV_Target {
-    float3 object_color = float3(1.0, 1.0, 1.0);
-
-    // Ambient
-    float ambient_strength = 0.1;
-    float3 ambient = light_data[0].light_color.xyz * ambient_strength;
-
     // Diffuse
     float3 normal = normalize(vertex_output.normal);
     float3 light_direction = normalize(vertex_output.world_position - light_data[0].light_position.xyz);
     float diffuse_intensity = max(dot(normal, light_direction), 0.0);
 
-    // Specular
-    float3 view_direction = normalize(ubo.view_position.xyz - vertex_output.world_position);
-    float3 reflect_direction = reflect(-light_direction, normal);
-    float specular_intensity = pow(max(dot(view_direction, reflect_direction), 0.0), 32) * 0.5;
-
-    // Combine diffuse and specular into intensity
-    // float intensity = saturate(diffuse_intensity + specular_intensity);
+    // Intensity
     float intensity = saturate(diffuse_intensity);
     float tone = (1.0 - intensity) * 6.0;
     int level_a = int(floor(tone));
