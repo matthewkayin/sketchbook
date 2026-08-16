@@ -1,7 +1,6 @@
 #pragma once
 
-#include "core/math.h"
-#include <vector>
-#include <cstdint>
+#include "renderer/types.h"
 
-bool renderer_load_model(const char* path, std::vector<Vertex3d>* out_vertices, std::vector<uint32_t>* out_indices);
+bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* out_model);
+void vulkan_model_destroy(VulkanContext* context, VulkanModel* model);

@@ -133,35 +133,9 @@ bool renderer_init(SDL_Window* window) {
     renderer_create_texture_sampler();
     renderer_create_uniform_objects();
 
-    if (!renderer_load_model("../res/model/teacup.glb", &context.model_vertices, &context.model_indices)) {
+    if (!vulkan_model_load(&context, "../res/model/teacup.glb", &context.model)) {
         return false;
     }
-
-    // Create vertex buffer
-    vulkan_buffer_create(&context, {
-        .size = context.model_vertices.size() * sizeof(Vertex3d),
-        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        .bind_on_create = true
-    }, &context.vertex_buffer);
-    vulkan_buffer_upload_data(&context, &context.vertex_buffer, {
-        .offset = 0,
-        .size = context.model_vertices.size() * sizeof(Vertex3d),
-        .data = context.model_vertices.data()
-    });
-
-    // Create index buffer
-    vulkan_buffer_create(&context, {
-        .size = context.model_indices.size() * sizeof(uint32_t),
-        .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        .bind_on_create = true
-    }, &context.index_buffer);
-    vulkan_buffer_upload_data(&context, &context.index_buffer, {
-        .offset = 0,
-        .size = context.model_indices.size() * sizeof(uint32_t),
-        .data = context.model_indices.data()
-    });
 
     context.frame_index = 0;
 
@@ -172,8 +146,7 @@ bool renderer_init(SDL_Window* window) {
 void renderer_quit() {
     vkDeviceWaitIdle(context.device.logical_device);
 
-    vulkan_buffer_destroy(&context, &context.vertex_buffer);
-    vulkan_buffer_destroy(&context, &context.index_buffer);
+    vulkan_model_destroy(&context, &context.model);
     renderer_destroy_uniform_objects();
     renderer_destroy_texture_sampler();
     renderer_destroy_hatch_textures();
@@ -387,19 +360,21 @@ void renderer_draw_frame(RenderPacket packet) {
         .data = &ubo
     });
 
+    // TODO: move into per-model rendering?
+    // And maybe model descriptor sets in the model struct?
     VkDeviceSize offsets = 0;
     vkCmdBindVertexBuffers(
         context.graphics_command_buffers[context.frame_index],
-        0, 1, &context.vertex_buffer.handle, &offsets);
+        0, 1, &context.model.vertex_buffer.handle, &offsets);
     vkCmdBindIndexBuffer(
         context.graphics_command_buffers[context.frame_index],
-        context.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
+        context.model.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
     vkCmdBindDescriptorSets(
         context.graphics_command_buffers[context.frame_index],
         VK_PIPELINE_BIND_POINT_GRAPHICS, context.graphics_pipeline.layout,
         0, 1, &context.descriptor_sets[context.frame_index], 0, nullptr);
 
-    vkCmdDrawIndexed(context.graphics_command_buffers[context.frame_index], context.model_indices.size(), 1, 0, 0, 0);
+    vkCmdDrawIndexed(context.graphics_command_buffers[context.frame_index], context.model.index_count, 1, 0, 0, 0);
 
     // END FRAME
 
@@ -847,7 +822,7 @@ void renderer_destroy_texture_sampler() {
     vkDestroySampler(context.device.logical_device, context.texture_sampler, context.allocator);
 }
 
-bool renderer_create_hash_textures() {
+bool renderer_create_hatch_textures() {
     bool success;
 
     const char* hatch_texture_paths[VULKAN_HATCH_TEXTURE_CHANNEL_COUNT] = {

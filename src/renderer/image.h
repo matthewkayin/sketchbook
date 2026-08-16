@@ -10,7 +10,7 @@ enum VulkanImageMipmapType {
 struct VulkanImageCreateTextureParams {
     VulkanImageMipmapType mipmap_type;
     uint32_t surface_count;
-    SDL_Surface* surfaces;
+    SDL_Surface** surfaces;
 };
 
 struct VulkanImageCreateParams {

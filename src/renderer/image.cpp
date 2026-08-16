@@ -163,8 +163,8 @@ void vulkan_image_view_create(VulkanContext* context, VulkanImageViewCreateParam
 
 // TEXTURES
 
-bool vulkan_image_create_texture(VulkanContext* context, VulkanImageCreateTextureParams params, VulkanImage* out_images) {
-    bool success = false;
+bool vulkan_image_create_textures(VulkanContext* context, VulkanImageCreateTextureParams params, VulkanImage* out_images) {
+    bool success = true;
     size_t image_copy_buffer_offset;
     VulkanBuffer staging_buffer;
     VkCommandBuffer temp_command_buffer;
@@ -179,7 +179,7 @@ bool vulkan_image_create_texture(VulkanContext* context, VulkanImageCreateTextur
     // Sum up byte size of all images
     size_t size_of_all_images = 0;
     for (uint32_t index = 0; index < params.surface_count; index++) {
-        size_of_all_images += vulkan_image_surface_size(params.surfaces + index);
+        size_of_all_images += vulkan_image_surface_size(params.surfaces[index]);
     }
 
     // Create staging buffer
@@ -198,7 +198,7 @@ bool vulkan_image_create_texture(VulkanContext* context, VulkanImageCreateTextur
 
     // Copy each image into staging buffer
     for (uint32_t index = 0; index < params.surface_count; index++) {
-        const SDL_Surface* image_surface = params.surfaces + index;
+        const SDL_Surface* image_surface = params.surfaces[index];
         const size_t image_size = vulkan_image_surface_size(image_surface);
         memcpy(staging_buffer_data, image_surface->pixels, image_size);
         staging_buffer_data += image_size;
@@ -209,7 +209,7 @@ bool vulkan_image_create_texture(VulkanContext* context, VulkanImageCreateTextur
 
     // Create images
     for (uint32_t index = 0; index < params.surface_count; index++) {
-        const SDL_Surface* image_surface = params.surfaces + index;
+        const SDL_Surface* image_surface = params.surfaces[index];
 
         bool image_create_succeeded = vulkan_image_create(context, {
             .width = (uint32_t)image_surface->w,
@@ -235,7 +235,7 @@ bool vulkan_image_create_texture(VulkanContext* context, VulkanImageCreateTextur
     // Copy image datas to the out_images
     image_copy_buffer_offset = 0;
     for (uint32_t index = 0; index < params.surface_count; index++) {
-        const SDL_Surface* image_surface = params.surfaces + index;
+        const SDL_Surface* image_surface = params.surfaces[index];
 
         // Transition layout to TRANSFER_DST
         vulkan_image_transition_layout({
@@ -511,7 +511,7 @@ bool vulkan_image_create_hatch_textures(VulkanContext* context, SDL_Surface* hat
     success = vulkan_image_create_textures(context, {
         .mipmap_type = VULKAN_IMAGE_MIPMAP_SUBSET,
         .surface_count = VULKAN_HATCH_TEXTURE_IMAGE_COUNT,
-        .surfaces = (SDL_Surface*)packed_hatch_surfaces
+        .surfaces = packed_hatch_surfaces
     }, out_images);
 
 end:

@@ -77,6 +77,8 @@ struct VulkanModel {
     VulkanImage metallic_roughness_texture;
     double metallic_factor;
     double roughness_factor;
+
+    uint32_t index_count;
 };
 
 struct VulkanContext {
@@ -103,19 +105,14 @@ struct VulkanContext {
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet descriptor_sets[VULKAN_MAX_FRAMES_IN_FLIGHT];
 
-    // Vertex and index buffers
-    VulkanBuffer vertex_buffer;
-    VulkanBuffer index_buffer;
+    // Shader resources
     VulkanBuffer uniform_buffers[VULKAN_MAX_FRAMES_IN_FLIGHT];
     VulkanBuffer light_data_buffer;
-
-    // Hatch textures
     VulkanImage hatch_textures[VULKAN_HATCH_TEXTURE_IMAGE_COUNT];
     VkSampler texture_sampler;
 
-    // Model vertices
-    std::vector<Vertex3d> model_vertices;
-    std::vector<uint32_t> model_indices;
+    // Model
+    VulkanModel model;
 
     uint32_t frame_index;
     uint32_t image_index;

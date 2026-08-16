@@ -1,7 +1,10 @@
 #include "model.h"
 
 #include "core/logger.h"
+#include "renderer/image.h"
+#include "renderer/buffer.h"
 #include <tinygltf/tiny_gltf_v3.h>
+#include <SDL3/SDL_image.h>
 
 struct RendererModelAttribute {
     const tg3_accessor* accessor;
@@ -9,13 +12,17 @@ struct RendererModelAttribute {
     const tg3_buffer* buffer;
 };
 
-LogLevel renderer_tg3_error_severity_to_log_level(tg3_severity severity);
-bool renderer_tg3_get_model_attribute(const tg3_model* model, const tg3_primitive* primitive, const char* key, RendererModelAttribute* out_attribute);
+LogLevel vulkan_model_tg3_error_severity_to_log_level(tg3_severity severity);
+bool vulkan_model_get_attribute(const tg3_model* model, const tg3_primitive* primitive, const char* key, RendererModelAttribute* out_attribute);
+SDL_Surface* vulkan_model_load_image_surface(const tg3_model* model, const tg3_texture_info* texture_info);
 
-bool renderer_load_model(const char* path, std::vector<Vertex3d>* out_vertices, std::vector<uint32_t>* out_indices) {
+bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* out_model) {
     tg3_parse_options options;
     tg3_error_stack error_stack;
     tg3_model model;
+
+    std::vector<Vertex3d> vertices;
+    std::vector<uint32_t> indices;
 
     uint32_t mesh_index;
     const tg3_mesh* mesh;
@@ -29,7 +36,7 @@ bool renderer_load_model(const char* path, std::vector<Vertex3d>* out_vertices, 
     tg3_error_code error = tg3_parse_file(&model, &error_stack, path, strlen(path), &options);
     if (error != TG3_OK) {
         for (uint32_t index = 0; index < error_stack.count; index++) {
-            LogLevel log_level = renderer_tg3_error_severity_to_log_level(error_stack.entries[index].severity);
+            LogLevel log_level = vulkan_model_tg3_error_severity_to_log_level(error_stack.entries[index].severity);
             const char* error_message = error_stack.entries[index].message
                 ? error_stack.entries[index].message
                 : "(null)";
@@ -40,14 +47,25 @@ bool renderer_load_model(const char* path, std::vector<Vertex3d>* out_vertices, 
         goto end;
     }
 
+    // Temporary: check that we have only one mesh
+    if (model.meshes_count > 1) {
+        log_warn("Model %s has multiple meshes!", path);
+    }
+
     for (mesh_index = 0; mesh_index < model.meshes_count; mesh_index++) {
         mesh = &model.meshes[mesh_index];
+
+        // Temporary: check that we have only one primitive
+        if (mesh->primitives_count > 1) {
+            log_warn("Mesh has multiple primitives.");
+        }
+
         for (uint32_t primitive_index = 0; primitive_index < mesh->primitives_count; primitive_index++) {
             const tg3_primitive& primitive = mesh->primitives[primitive_index];
 
             // Get position attribute
             RendererModelAttribute position_attribute;
-            if (!renderer_tg3_get_model_attribute(&model, &primitive, "POSITION", &position_attribute)) {
+            if (!vulkan_model_get_attribute(&model, &primitive, "POSITION", &position_attribute)) {
                 log_error("Error loading model %s. Mesh %u primitive %u has no attribute POSITION.", path, mesh_index, primitive_index);
                 success = false;
                 goto end;
@@ -55,7 +73,7 @@ bool renderer_load_model(const char* path, std::vector<Vertex3d>* out_vertices, 
 
             // Get normal attribute
             RendererModelAttribute normal_attribute;
-            if (!renderer_tg3_get_model_attribute(&model, &primitive, "NORMAL", &normal_attribute)) {
+            if (!vulkan_model_get_attribute(&model, &primitive, "NORMAL", &normal_attribute)) {
                 log_error("Error loading model %s. Mesh %u primitive %u has no attribute POSITION.", path, mesh_index, primitive_index);
                 success = false;
                 goto end;
@@ -63,7 +81,7 @@ bool renderer_load_model(const char* path, std::vector<Vertex3d>* out_vertices, 
 
             // Get tex coord attribute
             RendererModelAttribute tex_coord_attribute;
-            bool has_tex_coords = renderer_tg3_get_model_attribute(&model, &primitive, "TEXCOORD_0", &tex_coord_attribute);
+            bool has_tex_coords = vulkan_model_get_attribute(&model, &primitive, "TEXCOORD_0", &tex_coord_attribute);
             if (!has_tex_coords) {
                 log_warn("Model %s has no attribute TEXCOORD_0.", path);
             }
@@ -76,7 +94,7 @@ bool renderer_load_model(const char* path, std::vector<Vertex3d>* out_vertices, 
                     ? (float*)(tex_coord_attribute.buffer->data.data + tex_coord_attribute.buffer_view->byte_offset + tex_coord_attribute.accessor->byte_offset + (index * sizeof(vec2)))
                     : nullptr;
 
-                out_vertices->push_back({
+                vertices.push_back({
                     .position = vec3(position_data[0], position_data[1], position_data[2]),
                     .normal = vec3(normal_data[0], normal_data[1], normal_data[2]),
                     .tex_coord = has_tex_coords
@@ -95,17 +113,17 @@ bool renderer_load_model(const char* path, std::vector<Vertex3d>* out_vertices, 
             for (uint32_t index = 0; index < index_accessor.count; index++) {
                 switch (index_accessor.component_type) {
                     case TG3_COMPONENT_TYPE_UNSIGNED_BYTE: {
-                        out_indices->push_back((uint32_t)(*index_data_ptr));
+                        indices.push_back((uint32_t)(*index_data_ptr));
                         index_data_ptr += sizeof(uint8_t);
                         break;
                     }
                     case TG3_COMPONENT_TYPE_UNSIGNED_SHORT: {
-                        out_indices->push_back((uint32_t)(*((uint16_t*)index_data_ptr)));
+                        indices.push_back((uint32_t)(*((uint16_t*)index_data_ptr)));
                         index_data_ptr += sizeof(uint16_t);
                         break;
                     }
                     case TG3_COMPONENT_TYPE_UNSIGNED_INT: {
-                        out_indices->push_back(*((uint32_t*)index_data_ptr));
+                        indices.push_back(*((uint32_t*)index_data_ptr));
                         index_data_ptr += sizeof(uint32_t);
                         break;
                     }
@@ -113,21 +131,90 @@ bool renderer_load_model(const char* path, std::vector<Vertex3d>* out_vertices, 
                         log_error("Failed to load model %s. Unhandled index component type %u.", index_accessor.component_type);
                         success = false;
                         goto end;
-                        break;
                     }
                 }
             }
-        }
-    }
+
+            // Create vertex buffer
+            success = vulkan_buffer_create(context, {
+                .size = vertices.size() * sizeof(Vertex3d),
+                .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                .bind_on_create = true
+            }, &out_model->vertex_buffer);
+            if (!success) {
+                goto end;
+            }
+
+            // Upload vertices to vertex buffer
+            vulkan_buffer_upload_data(context, &out_model->vertex_buffer, {
+                .offset = 0,
+                .size = vertices.size() * sizeof(Vertex3d),
+                .data = vertices.data()
+            });
+
+            // Create index buffer
+            success = vulkan_buffer_create(context, {
+                .size = indices.size() * sizeof(uint32_t),
+                .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                .bind_on_create = true
+            }, &out_model->index_buffer);
+            if (!success) {
+                goto end;
+            }
+
+            // Upload indices to index buffer
+            vulkan_buffer_upload_data(context, &out_model->index_buffer, {
+                .offset = 0,
+                .size = indices.size() * sizeof(uint32_t),
+                .data = indices.data()
+            });
+
+            // Get material
+            const tg3_material& material = model.materials[primitive.material];
+            SDL_Surface* color_surface = vulkan_model_load_image_surface(&model, &material.pbr_metallic_roughness.base_color_texture);
+            if (!color_surface) {
+                log_error("Failed to load model %s. Could not load color surface.", path);
+                success = false;
+                goto end;
+            }
+
+            // Create model textures
+            success = vulkan_image_create_textures(context, {
+                .mipmap_type = VULKAN_IMAGE_MIPMAP_SCALED,
+                .surface_count = 1,
+                .surfaces = &color_surface
+            }, &out_model->color_texture);
+
+            // Regardless of fail / success, clean up surfaces
+            SDL_DestroySurface(color_surface);
+
+            if (!success) {
+                log_error("Failed to create model textures.");
+                success = false;
+                goto end;
+            }
+        } // End for each primitive
+    } // End for each mesh
+
+    out_model->index_count = indices.size();
 
     end:
         tg3_model_free(&model);
         tg3_error_stack_free(&error_stack);
 
+        log_debug("Model load %s finished with success ? %i", path, (int)success);
         return success;
 }
 
-LogLevel renderer_tg3_error_severity_to_log_level(tg3_severity severity) {
+void vulkan_model_destroy(VulkanContext* context, VulkanModel* model) {
+    vulkan_buffer_destroy(context, &model->vertex_buffer);
+    vulkan_buffer_destroy(context, &model->index_buffer);
+    vulkan_image_destroy(context, &model->color_texture);
+}
+
+LogLevel vulkan_model_tg3_error_severity_to_log_level(tg3_severity severity) {
     switch (severity) {
         case TG3_SEVERITY_ERROR:
             return LOG_LEVEL_ERROR;
@@ -138,7 +225,7 @@ LogLevel renderer_tg3_error_severity_to_log_level(tg3_severity severity) {
     }
 }
 
-bool renderer_tg3_get_model_attribute(const tg3_model* model, const tg3_primitive* primitive, const char* key, RendererModelAttribute* out_attribute) {
+bool vulkan_model_get_attribute(const tg3_model* model, const tg3_primitive* primitive, const char* key, RendererModelAttribute* out_attribute) {
     // Find the attribute index that matches the key
     uint32_t attribute_index;
     for (attribute_index = 0; attribute_index < primitive->attributes_count; attribute_index++) {
@@ -158,4 +245,22 @@ bool renderer_tg3_get_model_attribute(const tg3_model* model, const tg3_primitiv
     out_attribute->buffer = &model->buffers[out_attribute->buffer_view->buffer];
 
     return true;
+}
+
+SDL_Surface* vulkan_model_load_image_surface(const tg3_model* model, const tg3_texture_info* texture_info) {
+    const tg3_texture& texture = model->textures[texture_info->index];
+    const tg3_image& image = model->images[texture.source];
+
+    SDL_IOStream* image_stream = SDL_IOFromConstMem(image.image.data, image.image.count);
+    if (!image_stream) {
+        log_error("Failed to create IO stream for model image surface: %s.", SDL_GetError());
+        return nullptr;
+    }
+
+    SDL_Surface* surface = IMG_Load_IO(image_stream, true);
+    if (!surface) {
+        log_error("Failed to load model image surface from IO: %s.", SDL_GetError());
+    }
+
+    return surface;
 }
