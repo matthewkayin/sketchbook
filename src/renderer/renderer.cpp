@@ -34,6 +34,8 @@ void renderer_destroy_uniform_objects();
 void renderer_recreate_swapchain();
 void renderer_create_texture_sampler();
 void renderer_destroy_texture_sampler();
+bool renderer_create_hatch_textures();
+void renderer_destroy_hatch_textures();
 
 // Context
 static VulkanContext context;
@@ -124,15 +126,7 @@ bool renderer_init(SDL_Window* window) {
     renderer_create_sync_objects();
 
     // Load hatch textures
-    const char* hatch_texture_paths[] = {
-        "../res/texture/hatch0.jpg",
-        "../res/texture/hatch1.jpg",
-        "../res/texture/hatch2.jpg",
-        "../res/texture/hatch3.jpg",
-        "../res/texture/hatch4.jpg",
-        "../res/texture/hatch5.jpg"
-    };
-    if (!vulkan_image_create_hatch_texture(&context, hatch_texture_paths, context.hatch_textures)) {
+    if (!renderer_create_hatch_textures()) {
         return false;
     }
 
@@ -182,8 +176,7 @@ void renderer_quit() {
     vulkan_buffer_destroy(&context, &context.index_buffer);
     renderer_destroy_uniform_objects();
     renderer_destroy_texture_sampler();
-    vulkan_image_destroy(&context, &context.hatch_textures[0]);
-    vulkan_image_destroy(&context, &context.hatch_textures[1]);
+    renderer_destroy_hatch_textures();
     renderer_destroy_sync_objects();
     vkFreeCommandBuffers(
         context.device.logical_device,
@@ -852,4 +845,56 @@ void renderer_create_texture_sampler() {
 
 void renderer_destroy_texture_sampler() {
     vkDestroySampler(context.device.logical_device, context.texture_sampler, context.allocator);
+}
+
+bool renderer_create_hash_textures() {
+    bool success;
+
+    const char* hatch_texture_paths[VULKAN_HATCH_TEXTURE_CHANNEL_COUNT] = {
+        "../res/texture/hatch0.jpg",
+        "../res/texture/hatch1.jpg",
+        "../res/texture/hatch2.jpg",
+        "../res/texture/hatch3.jpg",
+        "../res/texture/hatch4.jpg",
+        "../res/texture/hatch5.jpg"
+    };
+
+    // Init surfaces to nullptr
+    SDL_Surface* hatch_surfaces[VULKAN_HATCH_TEXTURE_CHANNEL_COUNT];
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_CHANNEL_COUNT; index++) {
+        hatch_surfaces[index] = nullptr;
+    }
+
+    // Load each surface
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_CHANNEL_COUNT; index++) {
+        SDL_IOStream* image_stream = SDL_IOFromFile(hatch_texture_paths[index], "rb");
+        if (!image_stream) {
+            log_error("Failed to load hatch image at path %s: %s.", hatch_texture_paths[index], SDL_GetError());
+            success = false;
+            goto end;
+        }
+
+        hatch_surfaces[index] = vulkan_image_load_surface(image_stream);
+        if (!hatch_surfaces[index]) {
+            success = false;
+            goto end;
+        }
+    }
+
+    success = vulkan_image_create_hatch_textures(&context, hatch_surfaces, context.hatch_textures);
+
+end:
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_CHANNEL_COUNT; index++) {
+        if (hatch_surfaces[index]) {
+            SDL_DestroySurface(hatch_surfaces[index]);
+        }
+    }
+
+    return success;
+}
+
+void renderer_destroy_hatch_textures() {
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; index++) {
+        vulkan_image_destroy(&context, &context.hatch_textures[index]);
+    }
 }

@@ -2,6 +2,17 @@
 
 #include "renderer/types.h"
 
+enum VulkanImageMipmapType {
+    VULKAN_IMAGE_MIPMAP_SCALED,
+    VULKAN_IMAGE_MIPMAP_SUBSET
+};
+
+struct VulkanImageCreateTextureParams {
+    VulkanImageMipmapType mipmap_type;
+    uint32_t surface_count;
+    SDL_Surface* surfaces;
+};
+
 struct VulkanImageCreateParams {
     uint32_t width;
     uint32_t height;
@@ -42,12 +53,20 @@ struct VulkanImageTransitionLayoutExtParams {
     VkPipelineStageFlags2 dst_stage_mask;
 };
 
+// Surface
+SDL_Surface* vulkan_image_load_surface(SDL_IOStream* image_stream);
+size_t vulkan_image_surface_size(const SDL_Surface* surface);
+
+// Create
 bool vulkan_image_create(VulkanContext* context, VulkanImageCreateParams params, VulkanImage* out_image);
-bool vulkan_image_create_texture(VulkanContext* context, const char* path, VulkanImage* out_image);
-bool vulkan_image_generate_mipmaps(VulkanContext* context, VkCommandBuffer command_buffer, VulkanImage* image);
-bool vulkan_image_create_hatch_texture(VulkanContext* context, const char* const* paths, VulkanImage* out_images);
-void vulkan_image_generate_hatch_mipmaps(VkCommandBuffer command_buffer, VulkanImage* image);
 void vulkan_image_destroy(VulkanContext* context, VulkanImage* image);
 void vulkan_image_view_create(VulkanContext* context, VulkanImageViewCreateParams params, VkImageView* out_image_view);
+
+// Textures
+bool vulkan_image_create_textures(VulkanContext* context, VulkanImageCreateTextureParams params, VulkanImage* out_images);
+bool vulkan_image_generate_mipmaps(VulkanContext* context, VkCommandBuffer command_buffer, VulkanImageMipmapType type, VulkanImage* image);
+bool vulkan_image_create_hatch_textures(VulkanContext* context, SDL_Surface* hatch_surfaces[VULKAN_HATCH_TEXTURE_CHANNEL_COUNT], VulkanImage* out_images);
+
+// Layout
 void vulkan_image_transition_layout(VulkanImageTransitionLayoutParams params);
 void vulkan_image_transition_layout_ext(VulkanImageTransitionLayoutExtParams params);

@@ -68,6 +68,17 @@ struct VulkanBuffer {
     VkDeviceMemory memory;
 };
 
+// TODO: make this more robust to handle multiple materials, primitives, nodes, etc.
+struct VulkanModel {
+    VulkanBuffer vertex_buffer;
+    VulkanBuffer index_buffer;
+
+    VulkanImage color_texture;
+    VulkanImage metallic_roughness_texture;
+    double metallic_factor;
+    double roughness_factor;
+};
+
 struct VulkanContext {
     SDL_Window* window;
 

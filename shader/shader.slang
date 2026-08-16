@@ -21,8 +21,8 @@ struct LightData {
 };
 StructuredBuffer<LightData> light_data;
 
-Sampler2D texture0;
-Sampler2D texture1;
+Sampler2D hatch_texture0;
+Sampler2D hatch_texture1;
 
 struct VertexOutput {
     float4 sv_position: SV_Position;
@@ -59,8 +59,8 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
     float blend_weight = frac(tone);
 
     // Sample
-    float3 hatch0 = texture0.Sample(vertex_output.tex_coord).rgb;
-    float3 hatch1 = texture1.Sample(vertex_output.tex_coord).rgb;
+    float3 hatch0 = hatch_texture0.Sample(vertex_output.tex_coord).rgb;
+    float3 hatch1 = hatch_texture1.Sample(vertex_output.tex_coord).rgb;
 
     float hatch_colors[7];
     hatch_colors[0] = 1.0; // No hatch (just white / paper)
