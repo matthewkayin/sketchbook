@@ -11,7 +11,7 @@
 
 // SURFACE
 
-SDL_Surface* vulkan_image_load_surface(SDL_IOStream* image_stream) {
+SDL_Surface* vulkan_image_load_surface(SDL_IOStream* image_stream, uint32_t options) {
     // Load texture surface
     bool success = true;
     SDL_Surface* image_surface = IMG_Load_IO(image_stream, true);
@@ -34,12 +34,13 @@ SDL_Surface* vulkan_image_load_surface(SDL_IOStream* image_stream) {
     }
 
     // Flip surface vertically
-    if (!SDL_FlipSurface(image_surface, SDL_FLIP_VERTICAL)) {
-        log_error("Failed to flip image vertically: %s", SDL_GetError());
-        success = false;
-        goto end;
+    if (options & VULKAN_LOAD_SURFACE_FLIP_V) {
+        if (!SDL_FlipSurface(image_surface, SDL_FLIP_VERTICAL)) {
+            log_error("Failed to flip image vertically: %s", SDL_GetError());
+            success = false;
+            goto end;
+        }
     }
-
 end:
     if (!success && image_surface != nullptr) {
         SDL_DestroySurface(image_surface);

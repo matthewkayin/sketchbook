@@ -1,7 +1,6 @@
 #pragma once
 
 #include "core/asserts.h"
-#include "core/math.h"
 #include <vulkan/vulkan.h>
 #include <SDL3/SDL.h>
 #include <vector>
@@ -11,6 +10,8 @@ const uint32_t VULKAN_MAX_FRAMES_IN_FLIGHT = 2U;
 const uint32_t VULKAN_HATCH_TEXTURE_CHANNEL_COUNT = 6U;
 const uint32_t VULKAN_HATCH_TEXTURE_IMAGE_COUNT = 2U;
 const uint32_t VULKAN_HATCH_CHANNELS_PER_IMAGE = VULKAN_HATCH_TEXTURE_CHANNEL_COUNT / VULKAN_HATCH_TEXTURE_IMAGE_COUNT;
+
+const uint32_t VULKAN_COMBINED_IMAGE_SAMPLER_DESCRIPTOR_COUNT = 32U;
 
 #define VK_CHECK(expr)                  \
     {                                   \
@@ -60,7 +61,8 @@ struct VulkanSwapchain {
 struct VulkanPipeline {
     VkPipeline handle;
     VkPipelineLayout layout;
-    VkDescriptorSetLayout descriptor_set_layout;
+    VkDescriptorSetLayout global_descriptor_set_layout;
+    VkDescriptorSetLayout model_descriptor_set_layout;
 };
 
 struct VulkanBuffer {
@@ -72,6 +74,7 @@ struct VulkanBuffer {
 struct VulkanModel {
     VulkanBuffer vertex_buffer;
     VulkanBuffer index_buffer;
+    VkDescriptorSet descriptor_set;
 
     VulkanImage color_texture;
     VulkanImage metallic_roughness_texture;

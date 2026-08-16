@@ -13,16 +13,18 @@ struct UniformBuffer {
     float4x4 normal;
     float4 view_position;
 };
-ConstantBuffer<UniformBuffer> ubo;
 
 struct LightData {
     float4 light_position;
     float4 light_color;
 };
-StructuredBuffer<LightData> light_data;
 
-Sampler2D hatch_texture0;
-Sampler2D hatch_texture1;
+[[vk::binding(0, 0)]] ConstantBuffer<UniformBuffer> ubo;
+[[vk::binding(1, 0)]] StructuredBuffer<LightData> light_data;
+[[vk::binding(2, 0)]] Sampler2D hatch_texture0;
+[[vk::binding(3, 0)]] Sampler2D hatch_texture1;
+
+[[vk::binding(0, 1)]] Sampler2D color_texture;
 
 struct VertexOutput {
     float4 sv_position: SV_Position;
@@ -47,14 +49,19 @@ VertexOutput vertex_main(VertexInput input) {
 
 [shader("fragment")]
 float4 fragment_main(VertexOutput vertex_output): SV_Target {
+    // Object color
+    float3 object_color = color_texture.Sample(vertex_output.tex_coord).rgb;
+
     // Diffuse
     float3 normal = normalize(vertex_output.normal);
     float3 light_direction = normalize(vertex_output.world_position - light_data[0].light_position.xyz);
     float diffuse_intensity = max(dot(normal, light_direction), 0.0);
+    float3 diffuse = diffuse_intensity * object_color;
 
     // Intensity
-    float intensity = saturate(diffuse_intensity);
+    float intensity = length(diffuse);
     float tone = (1.0 - intensity) * 6.0;
+
     int level_a = int(floor(tone));
     float blend_weight = frac(tone);
 

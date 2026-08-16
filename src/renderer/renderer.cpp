@@ -133,7 +133,7 @@ bool renderer_init(SDL_Window* window) {
     renderer_create_texture_sampler();
     renderer_create_uniform_objects();
 
-    if (!vulkan_model_load(&context, "../res/model/teacup.glb", &context.model)) {
+    if (!vulkan_model_load(&context, "../res/model/avocado.glb", &context.model)) {
         return false;
     }
 
@@ -360,8 +360,19 @@ void renderer_draw_frame(RenderPacket packet) {
         .data = &ubo
     });
 
-    // TODO: move into per-model rendering?
-    // And maybe model descriptor sets in the model struct?
+    // Bind global descriptor set
+    vkCmdBindDescriptorSets(
+        context.graphics_command_buffers[context.frame_index],
+        VK_PIPELINE_BIND_POINT_GRAPHICS, context.graphics_pipeline.layout,
+        0, 1, &context.descriptor_sets[context.frame_index], 0, nullptr);
+
+    // Bind model descriptor set
+    vkCmdBindDescriptorSets(
+        context.graphics_command_buffers[context.frame_index],
+        VK_PIPELINE_BIND_POINT_GRAPHICS, context.graphics_pipeline.layout,
+        1, 1, &context.model.descriptor_set, 0, nullptr);
+
+    // Bind model vertex and index buffers
     VkDeviceSize offsets = 0;
     vkCmdBindVertexBuffers(
         context.graphics_command_buffers[context.frame_index],
@@ -369,10 +380,6 @@ void renderer_draw_frame(RenderPacket packet) {
     vkCmdBindIndexBuffer(
         context.graphics_command_buffers[context.frame_index],
         context.model.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdBindDescriptorSets(
-        context.graphics_command_buffers[context.frame_index],
-        VK_PIPELINE_BIND_POINT_GRAPHICS, context.graphics_pipeline.layout,
-        0, 1, &context.descriptor_sets[context.frame_index], 0, nullptr);
 
     vkCmdDrawIndexed(context.graphics_command_buffers[context.frame_index], context.model.index_count, 1, 0, 0, 0);
 
@@ -664,7 +671,7 @@ void renderer_create_uniform_objects() {
         },
         {
             .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = VULKAN_MAX_FRAMES_IN_FLIGHT * VULKAN_HATCH_TEXTURE_IMAGE_COUNT
+            .descriptorCount = VULKAN_COMBINED_IMAGE_SAMPLER_DESCRIPTOR_COUNT
         }
     };
     VkDescriptorPoolCreateInfo descriptor_pool_create_info {
@@ -683,8 +690,8 @@ void renderer_create_uniform_objects() {
 
     // Create descriptor sets
     VkDescriptorSetLayout layouts[VULKAN_MAX_FRAMES_IN_FLIGHT] = {
-        context.graphics_pipeline.descriptor_set_layout,
-        context.graphics_pipeline.descriptor_set_layout
+        context.graphics_pipeline.global_descriptor_set_layout,
+        context.graphics_pipeline.global_descriptor_set_layout
     };
     VkDescriptorSetAllocateInfo descriptor_set_allocate_info {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -849,7 +856,7 @@ bool renderer_create_hatch_textures() {
             goto end;
         }
 
-        hatch_surfaces[index] = vulkan_image_load_surface(image_stream);
+        hatch_surfaces[index] = vulkan_image_load_surface(image_stream, VULKAN_LOAD_SURFACE_FLIP_V);
         if (!hatch_surfaces[index]) {
             success = false;
             goto end;

@@ -201,8 +201,8 @@ bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out
         .pDynamicStates = dynamic_states
     };
 
-    // Descriptor set layout
-    VkDescriptorSetLayoutBinding descriptor_set_layout_bindings[] {
+    // Global descriptor set layout
+    VkDescriptorSetLayoutBinding global_descriptor_set_layout_bindings[] {
         {
             .binding = 0,
             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -232,26 +232,53 @@ bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out
             .pImmutableSamplers = nullptr
         }
     };
-    VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info {
+    VkDescriptorSetLayoutCreateInfo global_descriptor_set_layout_create_info {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .bindingCount = array_length(descriptor_set_layout_bindings),
-        .pBindings = descriptor_set_layout_bindings
+        .bindingCount = array_length(global_descriptor_set_layout_bindings),
+        .pBindings = global_descriptor_set_layout_bindings
     };
     VK_CHECK(vkCreateDescriptorSetLayout(
         context->device.logical_device,
-        &descriptor_set_layout_create_info,
+        &global_descriptor_set_layout_create_info,
         context->allocator,
-        &out_pipeline->descriptor_set_layout));
+        &out_pipeline->global_descriptor_set_layout));
+
+    // Model descriptor set layout
+    VkDescriptorSetLayoutBinding model_descriptor_set_layout_bindings[] {
+        {
+            .binding = 0,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .descriptorCount = 1,
+            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
+            .pImmutableSamplers = nullptr
+        }
+    };
+    VkDescriptorSetLayoutCreateInfo model_descriptor_set_layout_create_info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .bindingCount = array_length(model_descriptor_set_layout_bindings),
+        .pBindings = model_descriptor_set_layout_bindings
+    };
+    VK_CHECK(vkCreateDescriptorSetLayout(
+        context->device.logical_device,
+        &model_descriptor_set_layout_create_info,
+        context->allocator,
+        &out_pipeline->model_descriptor_set_layout));
 
     // Create layout
+    VkDescriptorSetLayout descriptor_set_layouts[] = {
+        out_pipeline->global_descriptor_set_layout,
+        out_pipeline->model_descriptor_set_layout
+    };
     VkPipelineLayoutCreateInfo layout_create_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .setLayoutCount = 1,
-        .pSetLayouts = &out_pipeline->descriptor_set_layout,
+        .setLayoutCount = array_length(descriptor_set_layouts),
+        .pSetLayouts = descriptor_set_layouts,
         .pushConstantRangeCount = 0,
         .pPushConstantRanges = nullptr
     };
@@ -309,5 +336,6 @@ bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out
 void vulkan_pipeline_destroy(VulkanContext* context, VulkanPipeline* pipeline) {
     vkDestroyPipeline(context->device.logical_device, pipeline->handle, context->allocator);
     vkDestroyPipelineLayout(context->device.logical_device, pipeline->layout, context->allocator);
-    vkDestroyDescriptorSetLayout(context->device.logical_device, pipeline->descriptor_set_layout, context->allocator);
+    vkDestroyDescriptorSetLayout(context->device.logical_device, pipeline->global_descriptor_set_layout, context->allocator);
+    vkDestroyDescriptorSetLayout(context->device.logical_device, pipeline->model_descriptor_set_layout, context->allocator);
 }

@@ -2,6 +2,8 @@
 
 #include "renderer/types.h"
 
+const uint32_t VULKAN_LOAD_SURFACE_FLIP_V = 1U;
+
 enum VulkanImageMipmapType {
     VULKAN_IMAGE_MIPMAP_SCALED,
     VULKAN_IMAGE_MIPMAP_SUBSET
@@ -54,7 +56,7 @@ struct VulkanImageTransitionLayoutExtParams {
 };
 
 // Surface
-SDL_Surface* vulkan_image_load_surface(SDL_IOStream* image_stream);
+SDL_Surface* vulkan_image_load_surface(SDL_IOStream* image_stream, uint32_t options);
 size_t vulkan_image_surface_size(const SDL_Surface* surface);
 
 // Create

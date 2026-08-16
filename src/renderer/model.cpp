@@ -1,6 +1,7 @@
 #include "model.h"
 
 #include "core/logger.h"
+#include "core/math.h"
 #include "renderer/image.h"
 #include "renderer/buffer.h"
 #include <tinygltf/tiny_gltf_v3.h>
@@ -23,6 +24,10 @@ bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* ou
 
     std::vector<Vertex3d> vertices;
     std::vector<uint32_t> indices;
+
+    VkDescriptorSetAllocateInfo descriptor_set_allocate_info;
+    VkDescriptorImageInfo image_info;
+    VkWriteDescriptorSet descriptor_write;
 
     uint32_t mesh_index;
     const tg3_mesh* mesh;
@@ -204,6 +209,39 @@ bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* ou
 
     out_model->index_count = indices.size();
 
+    // Create model descriptor set
+    descriptor_set_allocate_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .descriptorPool = context->descriptor_pool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &context->graphics_pipeline.model_descriptor_set_layout
+    };
+    VK_CHECK(vkAllocateDescriptorSets(
+        context->device.logical_device,
+        &descriptor_set_allocate_info,
+        &out_model->descriptor_set));
+
+    // Write model descriptor set
+    image_info = {
+        .sampler = context->texture_sampler,
+        .imageView = out_model->color_texture.view,
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    };
+    descriptor_write = {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .pNext = nullptr,
+        .dstSet = out_model->descriptor_set,
+        .dstBinding = 0,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo = &image_info,
+        .pBufferInfo = nullptr,
+        .pTexelBufferView = nullptr
+    };
+    vkUpdateDescriptorSets(context->device.logical_device, 1, &descriptor_write, 0, nullptr);
+
     end:
         tg3_model_free(&model);
         tg3_error_stack_free(&error_stack);
@@ -270,5 +308,5 @@ SDL_Surface* vulkan_model_load_image_surface(const tg3_model* model, const tg3_t
         return nullptr;
     }
 
-    return vulkan_image_load_surface(image_stream);
+    return vulkan_image_load_surface(image_stream, 0);
 }
