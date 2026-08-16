@@ -135,42 +135,6 @@ bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* ou
                 }
             }
 
-            // Create vertex buffer
-            success = vulkan_buffer_create(context, {
-                .size = vertices.size() * sizeof(Vertex3d),
-                .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                .bind_on_create = true
-            }, &out_model->vertex_buffer);
-            if (!success) {
-                goto end;
-            }
-
-            // Upload vertices to vertex buffer
-            vulkan_buffer_upload_data(context, &out_model->vertex_buffer, {
-                .offset = 0,
-                .size = vertices.size() * sizeof(Vertex3d),
-                .data = vertices.data()
-            });
-
-            // Create index buffer
-            success = vulkan_buffer_create(context, {
-                .size = indices.size() * sizeof(uint32_t),
-                .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-                .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                .bind_on_create = true
-            }, &out_model->index_buffer);
-            if (!success) {
-                goto end;
-            }
-
-            // Upload indices to index buffer
-            vulkan_buffer_upload_data(context, &out_model->index_buffer, {
-                .offset = 0,
-                .size = indices.size() * sizeof(uint32_t),
-                .data = indices.data()
-            });
-
             // Get material
             const tg3_material& material = model.materials[primitive.material];
             SDL_Surface* color_surface = vulkan_model_load_image_surface(&model, &material.pbr_metallic_roughness.base_color_texture);
@@ -195,8 +159,48 @@ bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* ou
                 success = false;
                 goto end;
             }
+
         } // End for each primitive
+
+        // TODO: remove me
+        break;
     } // End for each mesh
+
+    // Create vertex buffer
+    success = vulkan_buffer_create(context, {
+        .size = vertices.size() * sizeof(Vertex3d),
+        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .bind_on_create = true
+    }, &out_model->vertex_buffer);
+    if (!success) {
+        goto end;
+    }
+
+    // Upload vertices to vertex buffer
+    vulkan_buffer_upload_data(context, &out_model->vertex_buffer, {
+        .offset = 0,
+        .size = vertices.size() * sizeof(Vertex3d),
+        .data = vertices.data()
+    });
+
+    // Create index buffer
+    success = vulkan_buffer_create(context, {
+        .size = indices.size() * sizeof(uint32_t),
+        .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .bind_on_create = true
+    }, &out_model->index_buffer);
+    if (!success) {
+        goto end;
+    }
+
+    // Upload indices to index buffer
+    vulkan_buffer_upload_data(context, &out_model->index_buffer, {
+        .offset = 0,
+        .size = indices.size() * sizeof(uint32_t),
+        .data = indices.data()
+    });
 
     out_model->index_count = indices.size();
 
@@ -250,17 +254,21 @@ bool vulkan_model_get_attribute(const tg3_model* model, const tg3_primitive* pri
 SDL_Surface* vulkan_model_load_image_surface(const tg3_model* model, const tg3_texture_info* texture_info) {
     const tg3_texture& texture = model->textures[texture_info->index];
     const tg3_image& image = model->images[texture.source];
+    log_debug("Loading image with mime type %s.", image.mime_type.data);
 
-    SDL_IOStream* image_stream = SDL_IOFromConstMem(image.image.data, image.image.count);
+    if (image.buffer_view == -1) {
+        log_error("Image has no buffer view.");
+        return nullptr;
+    }
+
+    const tg3_buffer_view& buffer_view = model->buffer_views[image.buffer_view];
+    const tg3_buffer& buffer = model->buffers[buffer_view.buffer];
+
+    SDL_IOStream* image_stream = SDL_IOFromConstMem(buffer.data.data + buffer_view.byte_offset, buffer_view.byte_length);
     if (!image_stream) {
         log_error("Failed to create IO stream for model image surface: %s.", SDL_GetError());
         return nullptr;
     }
 
-    SDL_Surface* surface = IMG_Load_IO(image_stream, true);
-    if (!surface) {
-        log_error("Failed to load model image surface from IO: %s.", SDL_GetError());
-    }
-
-    return surface;
+    return vulkan_image_load_surface(image_stream);
 }
