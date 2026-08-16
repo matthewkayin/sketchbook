@@ -56,7 +56,7 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
     float3 normal = normalize(vertex_output.normal);
     float3 light_direction = normalize(vertex_output.world_position - light_data[0].light_position.xyz);
     float diffuse_intensity = max(dot(normal, light_direction), 0.0);
-    float3 diffuse = diffuse_intensity * object_color;
+    float3 diffuse = (diffuse_intensity + object_color) / 2.0;
 
     // Intensity
     float intensity = length(diffuse);

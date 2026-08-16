@@ -133,7 +133,7 @@ bool renderer_init(SDL_Window* window) {
     renderer_create_texture_sampler();
     renderer_create_uniform_objects();
 
-    if (!vulkan_model_load(&context, "../res/model/avocado.glb", &context.model)) {
+    if (!vulkan_model_load(&context, "../res/model/teacup.glb", &context.model)) {
         return false;
     }
 

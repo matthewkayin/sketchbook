@@ -390,6 +390,14 @@ struct mat4 {
         return result;
     }
 
+    vec4 operator*(const vec4& vec) const {
+        return vec4(
+            (data[0] * vec.x) + (data[1] * vec.y) + (data[2] * vec.z) + (data[3] * vec.w),
+            (data[4] * vec.x) + (data[5] * vec.y) + (data[6] * vec.z) + (data[7] * vec.w),
+            (data[8] * vec.x) + (data[9] * vec.y) + (data[10] * vec.z) + (data[11] * vec.w),
+            (data[12] * vec.x) + (data[13] * vec.y) + (data[14] * vec.z) + (data[15] * vec.w));
+    }
+
     static mat4 ortho(float left, float right, float top, float bottom, float near, float far) {
         mat4 result = mat4::identity();
 
