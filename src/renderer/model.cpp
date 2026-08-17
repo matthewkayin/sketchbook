@@ -277,6 +277,7 @@ bool vulkan_model_load_meshes(VulkanContext* context, const tg3_model& model, Vu
 
         for (uint32_t primitive_index = 0; primitive_index < mesh.primitives_count; primitive_index++) {
             const tg3_primitive& primitive = mesh.primitives[primitive_index];
+            const uint32_t base_index = (uint32_t)vertices.size();
 
             // Get position attribute
             RendererModelAttribute position_attribute;
@@ -328,17 +329,18 @@ bool vulkan_model_load_meshes(VulkanContext* context, const tg3_model& model, Vu
             for (uint32_t index = 0; index < index_accessor.count; index++) {
                 switch (index_accessor.component_type) {
                     case TG3_COMPONENT_TYPE_UNSIGNED_BYTE: {
-                        indices.push_back((uint32_t)(*index_data_ptr));
+                        indices.push_back(base_index + (uint32_t)(*index_data_ptr));
                         index_data_ptr += sizeof(uint8_t);
                         break;
                     }
                     case TG3_COMPONENT_TYPE_UNSIGNED_SHORT: {
-                        indices.push_back((uint32_t)(*((uint16_t*)index_data_ptr)));
+                        uint16_t* index_data_ptr_uint16 = (uint16_t*)index_data_ptr;
+                        indices.push_back(base_index + (uint32_t)(*index_data_ptr_uint16));
                         index_data_ptr += sizeof(uint16_t);
                         break;
                     }
                     case TG3_COMPONENT_TYPE_UNSIGNED_INT: {
-                        indices.push_back(*((uint32_t*)index_data_ptr));
+                        indices.push_back(base_index + *((uint32_t*)index_data_ptr));
                         index_data_ptr += sizeof(uint32_t);
                         break;
                     }
@@ -430,6 +432,7 @@ void vulkan_model_load_nodes(const tg3_model& model, VulkanModel* out_model) {
     }
 }
 
+#include "core/input.h"
 void vulkan_model_render(VulkanContext* context, VulkanModel* model) {
     VkDeviceSize offsets = 0;
     vkCmdBindVertexBuffers(
@@ -439,8 +442,17 @@ void vulkan_model_render(VulkanContext* context, VulkanModel* model) {
         context->graphics_command_buffers[context->frame_index],
         model->index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
 
+    static uint32_t node_chosen_index = 0;
+    if (input_is_key_just_pressed(SDL_SCANCODE_LEFT)) {
+        node_chosen_index--;
+    } else if (input_is_key_just_pressed(SDL_SCANCODE_RIGHT)) {
+        node_chosen_index++;
+    }
     for (uint32_t node_index = 0; node_index < model->nodes.size(); node_index++) {
         const VulkanNode& node = model->nodes[node_index];
+        if (node_index != node_chosen_index) {
+            continue;
+        }
         if (node.parent_index != VULKAN_NODE_PARENT_NONE ||
             node.mesh_index == VULKAN_NODE_MESH_NONE
         ) {
@@ -464,5 +476,7 @@ void vulkan_model_render(VulkanContext* context, VulkanModel* model) {
                 context->graphics_command_buffers[context->frame_index],
                 primitive.index_count, 1, primitive.first_index, 0, 0);
         }
+
+        break;
     }
 }
