@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/asserts.h"
+#include "core/math.h"
 #include <vulkan/vulkan.h>
 #include <SDL3/SDL.h>
 #include <vector>
@@ -11,7 +12,8 @@ const uint32_t VULKAN_HATCH_TEXTURE_CHANNEL_COUNT = 6U;
 const uint32_t VULKAN_HATCH_TEXTURE_IMAGE_COUNT = 2U;
 const uint32_t VULKAN_HATCH_CHANNELS_PER_IMAGE = VULKAN_HATCH_TEXTURE_CHANNEL_COUNT / VULKAN_HATCH_TEXTURE_IMAGE_COUNT;
 
-const uint32_t VULKAN_COMBINED_IMAGE_SAMPLER_DESCRIPTOR_COUNT = 32U;
+const uint32_t VULKAN_DESCRIPTOR_POOL_MAX_SETS = 64U;
+const uint32_t VULKAN_COMBINED_IMAGE_SAMPLER_DESCRIPTOR_COUNT = 48U;
 
 #define VK_CHECK(expr)                  \
     {                                   \
@@ -69,18 +71,37 @@ struct VulkanBuffer {
     VkDeviceMemory memory;
 };
 
-// TODO: make this more robust to handle multiple materials, primitives, nodes, etc.
+// MODEL
+
+const uint32_t VULKAN_MESH_MATERIAL_NONE = UINT32_MAX;
+const uint32_t VULKAN_NODE_MESH_NONE = UINT32_MAX;
+const uint32_t VULKAN_NODE_PARENT_NONE = UINT32_MAX;
+
+struct VulkanPrimitive {
+    uint32_t first_index;
+    uint32_t index_count;
+    uint32_t material_index;
+};
+
+struct VulkanMesh {
+    std::vector<VulkanPrimitive> primitives;
+};
+
+struct VulkanNode {
+    mat4 local_transform;
+    uint32_t mesh_index;
+    uint32_t parent_index;
+    std::vector<uint32_t> child_indices;
+};
+
 struct VulkanModel {
     VulkanBuffer vertex_buffer;
     VulkanBuffer index_buffer;
-    VkDescriptorSet descriptor_set;
 
-    VulkanImage color_texture;
-    VulkanImage metallic_roughness_texture;
-    double metallic_factor;
-    double roughness_factor;
-
-    uint32_t index_count;
+    std::vector<VulkanMesh> meshes;
+    std::vector<VulkanNode> nodes;
+    std::vector<VkDescriptorSet> material_descriptor_sets;
+    std::vector<VulkanImage> textures;
 };
 
 struct VulkanContext {
@@ -112,6 +133,7 @@ struct VulkanContext {
     VulkanBuffer light_data_buffer;
     VulkanImage hatch_textures[VULKAN_HATCH_TEXTURE_IMAGE_COUNT];
     VkSampler texture_sampler;
+    VulkanImage fallback_texture;
 
     // Model
     VulkanModel model;

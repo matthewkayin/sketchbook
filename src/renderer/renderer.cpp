@@ -36,6 +36,8 @@ void renderer_create_texture_sampler();
 void renderer_destroy_texture_sampler();
 bool renderer_create_hatch_textures();
 void renderer_destroy_hatch_textures();
+bool renderer_create_fallback_texture();
+void renderer_destroy_fallback_texture();
 
 // Context
 static VulkanContext context;
@@ -188,11 +190,14 @@ bool renderer_init(SDL_Window* window) {
     if (!renderer_create_hatch_textures()) {
         return false;
     }
+    if (!renderer_create_fallback_texture()) {
+        return false;
+    }
 
     renderer_create_texture_sampler();
     renderer_create_uniform_objects();
 
-    if (!vulkan_model_load(&context, "../res/model/avocado.glb", &context.model)) {
+    if (!vulkan_model_load(&context, "../res/model/chess.glb", &context.model)) {
         return false;
     }
 
@@ -208,6 +213,7 @@ void renderer_quit() {
     vulkan_model_destroy(&context, &context.model);
     renderer_destroy_uniform_objects();
     renderer_destroy_texture_sampler();
+    renderer_destroy_fallback_texture();
     renderer_destroy_hatch_textures();
     renderer_destroy_sync_objects();
     vkFreeCommandBuffers(
@@ -403,12 +409,6 @@ void renderer_draw_frame(RenderPacket packet) {
         VK_PIPELINE_BIND_POINT_GRAPHICS, context.graphics_pipeline.layout,
         0, 1, &context.global_descriptor_sets[context.frame_index], 0, nullptr);
 
-    // Bind model descriptor set
-    vkCmdBindDescriptorSets(
-        context.graphics_command_buffers[context.frame_index],
-        VK_PIPELINE_BIND_POINT_GRAPHICS, context.graphics_pipeline.layout,
-        1, 1, &context.model.descriptor_set, 0, nullptr);
-
     // DRAW MODEL
 
     RendererUniformBufferObject ubo {
@@ -432,16 +432,7 @@ void renderer_draw_frame(RenderPacket packet) {
         .data = &ubo
     });
 
-    // Bind model vertex and index buffers
-    VkDeviceSize offsets = 0;
-    vkCmdBindVertexBuffers(
-        context.graphics_command_buffers[context.frame_index],
-        0, 1, &context.model.vertex_buffer.handle, &offsets);
-    vkCmdBindIndexBuffer(
-        context.graphics_command_buffers[context.frame_index],
-        context.model.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
-
-    vkCmdDrawIndexed(context.graphics_command_buffers[context.frame_index], context.model.index_count, 1, 0, 0, 0);
+    vulkan_model_render(&context, &context.model);
 
     // END FRAME
 
@@ -738,7 +729,7 @@ void renderer_create_uniform_objects() {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .maxSets = VULKAN_MAX_FRAMES_IN_FLIGHT,
+        .maxSets = VULKAN_DESCRIPTOR_POOL_MAX_SETS,
         .poolSizeCount = array_length(descriptor_pool_sizes),
         .pPoolSizes = descriptor_pool_sizes
     };
@@ -835,7 +826,10 @@ void renderer_create_uniform_objects() {
         }
     }
 
-    vkUpdateDescriptorSets(context.device.logical_device, descriptor_writes.size(), descriptor_writes.data(), 0, nullptr);
+    vkUpdateDescriptorSets(
+        context.device.logical_device,
+        descriptor_writes.size(), descriptor_writes.data(),
+        0, nullptr);
 }
 
 void renderer_destroy_uniform_objects() {
@@ -940,4 +934,26 @@ void renderer_destroy_hatch_textures() {
     for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; index++) {
         vulkan_image_destroy(&context, &context.hatch_textures[index]);
     }
+}
+
+bool renderer_create_fallback_texture() {
+    SDL_Surface* surface = SDL_CreateSurface(2, 2, SDL_PIXELFORMAT_ABGR8888);
+    if (!surface) {
+        log_error("Error creating surface for fallback texture: %s", SDL_GetError());
+        return false;
+    }
+
+    bool success = vulkan_image_create_textures(&context, {
+        .mipmap_type = VULKAN_IMAGE_MIPMAP_SCALED,
+        .surface_count = 1,
+        .surfaces = &surface
+    }, &context.fallback_texture);
+
+    SDL_DestroySurface(surface);
+
+    return success;
+}
+
+void renderer_destroy_fallback_texture() {
+    vulkan_image_destroy(&context, &context.fallback_texture);
 }

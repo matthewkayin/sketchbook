@@ -130,10 +130,18 @@ bool vulkan_image_create(VulkanContext* context, VulkanImageCreateParams params,
 }
 
 void vulkan_image_destroy(VulkanContext* context, VulkanImage* image) {
-    vkDestroyImageView(context->device.logical_device, image->view, context->allocator);
-    vkFreeMemory(context->device.logical_device, image->memory, context->allocator);
-    vkDestroyImage(context->device.logical_device, image->handle, context->allocator);
-    image->handle = VK_NULL_HANDLE;
+    if (image->view != VK_NULL_HANDLE) {
+        vkDestroyImageView(context->device.logical_device, image->view, context->allocator);
+        image->view = VK_NULL_HANDLE;
+    }
+    if (image->memory != VK_NULL_HANDLE) {
+        vkFreeMemory(context->device.logical_device, image->memory, context->allocator);
+        image->memory = VK_NULL_HANDLE;
+    }
+    if (image->handle != VK_NULL_HANDLE) {
+        vkDestroyImage(context->device.logical_device, image->handle, context->allocator);
+        image->handle = VK_NULL_HANDLE;
+    }
 }
 
 void vulkan_image_view_create(VulkanContext* context, VulkanImageViewCreateParams params, VkImageView* out_image_view) {

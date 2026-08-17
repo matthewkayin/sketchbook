@@ -15,31 +15,87 @@ struct RendererModelAttribute {
 };
 
 LogLevel vulkan_model_tg3_error_severity_to_log_level(tg3_severity severity);
-bool vulkan_model_get_attribute(const tg3_model* model, const tg3_primitive* primitive, const char* key, RendererModelAttribute* out_attribute);
+bool vulkan_model_tg3_parse_file(const char* path, tg3_model* out_model);
+bool vulkan_model_get_attribute(const tg3_model& model, const tg3_primitive& primitive, const char* key, RendererModelAttribute* out_attribute);
 SDL_Surface* vulkan_model_load_image_surface(const tg3_model* model, const tg3_texture_info* texture_info);
+bool vulkan_model_load_textures(VulkanContext* context, const tg3_model& model, VulkanModel* out_model);
+void vulkan_model_load_materials(VulkanContext* context, const tg3_model& model, VulkanModel* out_model);
+bool vulkan_model_load_meshes(VulkanContext* context, const tg3_model& model, VulkanModel* out_model);
+void vulkan_model_load_nodes(const tg3_model& model, VulkanModel* out_model);
 
 bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* out_model) {
-    tg3_parse_options options;
-    tg3_error_stack error_stack;
+    bool success = true;
     tg3_model model;
 
-    std::vector<Vertex3d> vertices;
-    std::vector<uint32_t> indices;
+    // Zero-out out_model
+    out_model->vertex_buffer.handle = VK_NULL_HANDLE;
+    out_model->vertex_buffer.memory = VK_NULL_HANDLE;
+    out_model->index_buffer.handle = VK_NULL_HANDLE;
+    out_model->index_buffer.handle = VK_NULL_HANDLE;
 
-    VkDescriptorSetAllocateInfo descriptor_set_allocate_info;
-    VkDescriptorImageInfo image_info;
-    VkWriteDescriptorSet descriptor_write;
+    if (!vulkan_model_tg3_parse_file(path, &model)) {
+        success = false;
+        goto end;
+    }
+    if (!vulkan_model_load_textures(context, model, out_model)) {
+        success = false;
+        goto end;
+    }
+    vulkan_model_load_materials(context, model, out_model);
+    if (!vulkan_model_load_meshes(context, model, out_model)) {
+        success = false;
+        goto end;
+    }
+    vulkan_model_load_nodes(model, out_model);
 
-    uint32_t mesh_index;
-    const tg3_mesh* mesh;
+end:
+    if (!success) {
+        vulkan_model_destroy(context, out_model);
+    }
+    tg3_model_free(&model);
 
+    return success;
+}
+
+void vulkan_model_destroy(VulkanContext* context, VulkanModel* model) {
+    vulkan_buffer_destroy(context, &model->vertex_buffer);
+    vulkan_buffer_destroy(context, &model->index_buffer);
+
+    // Destroy textures
+    for (uint32_t index = 0; index < model->textures.size(); index++) {
+        vulkan_image_destroy(context, &model->textures[index]);
+    }
+    model->textures.clear();
+
+    // TODO: for model loading and unloading in a scene / between scenes, would need
+    // to have a separate model descriptor pool that gets reset
+    model->material_descriptor_sets.clear();
+
+    model->meshes.clear();
+    model->nodes.clear();
+}
+
+LogLevel vulkan_model_tg3_error_severity_to_log_level(tg3_severity severity) {
+    switch (severity) {
+        case TG3_SEVERITY_ERROR:
+            return LOG_LEVEL_ERROR;
+        case TG3_SEVERITY_WARNING:
+            return LOG_LEVEL_WARN;
+        case TG3_SEVERITY_INFO:
+            return LOG_LEVEL_INFO;
+    }
+}
+
+bool vulkan_model_tg3_parse_file(const char* path, tg3_model* out_model) {
     bool success = true;
+    tg3_parse_options options;
+    tg3_error_stack error_stack;
 
     tg3_parse_options_init(&options);
     tg3_error_stack_init(&error_stack);
 
     // Load model from file
-    tg3_error_code error = tg3_parse_file(&model, &error_stack, path, strlen(path), &options);
+    tg3_error_code error = tg3_parse_file(out_model, &error_stack, path, strlen(path), &options);
     if (error != TG3_OK) {
         for (uint32_t index = 0; index < error_stack.count; index++) {
             LogLevel log_level = vulkan_model_tg3_error_severity_to_log_level(error_stack.entries[index].severity);
@@ -50,46 +106,199 @@ bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* ou
         }
 
         success = false;
-        goto end;
     }
 
-    // Temporary: check that we have only one mesh
-    if (model.meshes_count > 1) {
-        log_warn("Model %s has multiple meshes!", path);
+    tg3_error_stack_free(&error_stack);
+
+    return success;
+}
+
+bool vulkan_model_get_attribute(const tg3_model& model, const tg3_primitive& primitive, const char* key, RendererModelAttribute* out_attribute) {
+    // Find the attribute index that matches the key
+    uint32_t attribute_index;
+    for (attribute_index = 0; attribute_index < primitive.attributes_count; attribute_index++) {
+        const tg3_str_int_pair* attribute = &primitive.attributes[attribute_index];
+        if (strcmp(attribute->key.data, key) == 0) {
+            break;
+        }
     }
 
-    for (mesh_index = 0; mesh_index < model.meshes_count; mesh_index++) {
-        mesh = &model.meshes[mesh_index];
+    if (attribute_index == primitive.attributes_count) {
+        return false;
+    }
 
-        // Temporary: check that we have only one primitive
-        if (mesh->primitives_count > 1) {
-            log_warn("Mesh has multiple primitives.");
+    const tg3_str_int_pair* attribute = &primitive.attributes[attribute_index];
+    out_attribute->accessor = &model.accessors[attribute->value];
+    out_attribute->buffer_view = &model.buffer_views[out_attribute->accessor->buffer_view];
+    out_attribute->buffer = &model.buffers[out_attribute->buffer_view->buffer];
+
+    return true;
+}
+
+SDL_Surface* vulkan_model_load_texture_surface(const tg3_model& model, const tg3_texture& texture) {
+    SDL_IOStream* image_stream;
+
+    const tg3_image& image = model.images[texture.source];
+    log_debug("Loading image with mime type %s.", image.mime_type.data);
+
+    if (image.buffer_view != -1) {
+        log_debug("Loading model image from buffer view %i", image.buffer_view);
+
+        const tg3_buffer_view& buffer_view = model.buffer_views[image.buffer_view];
+        const tg3_buffer& buffer = model.buffers[buffer_view.buffer];
+
+        image_stream = SDL_IOFromConstMem(buffer.data.data + buffer_view.byte_offset, buffer_view.byte_length);
+        if (!image_stream) {
+            log_error("Failed to create IO stream for model image surface: %s.", SDL_GetError());
+            return nullptr;
+        }
+    } else if (image.uri.len != 0) {
+        log_debug("Loading model image with uri %s.", image.uri.data);
+
+        char image_path[256];
+        sprintf(image_path, "../res/model/%s", image.uri.data);
+        image_stream = SDL_IOFromFile(image_path, "rb");
+    } else {
+        log_error("No way to load image.");
+        return nullptr;
+    }
+
+    return vulkan_image_load_surface(image_stream, 0);
+}
+
+bool vulkan_model_load_textures(VulkanContext* context, const tg3_model& model, VulkanModel* out_model) {
+    bool success;
+
+    // Load surfaces for each texture
+    std::vector<SDL_Surface*> texture_surfaces;
+    texture_surfaces.reserve(model.textures_count);
+    for (uint32_t texture_index = 0; texture_index < model.textures_count; texture_index++) {
+        const tg3_texture& texture = model.textures[texture_index];
+        SDL_Surface* surface = vulkan_model_load_texture_surface(model, texture);
+        if (!surface) {
+            success = false;
+            goto end;
         }
 
-        for (uint32_t primitive_index = 0; primitive_index < mesh->primitives_count; primitive_index++) {
-            const tg3_primitive& primitive = mesh->primitives[primitive_index];
+        texture_surfaces.push_back(surface);
+    }
+
+    // Create vulkan images based on the surfaces
+    out_model->textures = std::vector<VulkanImage>(model.textures_count);
+    success = vulkan_image_create_textures(context, {
+        .mipmap_type = VULKAN_IMAGE_MIPMAP_SCALED,
+        .surface_count = (uint32_t)texture_surfaces.size(),
+        .surfaces = texture_surfaces.data()
+    }, out_model->textures.data());
+end:
+    for (uint32_t index = 0; index < texture_surfaces.size(); index++) {
+        SDL_DestroySurface(texture_surfaces[index]);
+    }
+
+    return success;
+}
+
+void vulkan_model_load_materials(VulkanContext* context, const tg3_model& model, VulkanModel* out_model) {
+    std::vector<VkDescriptorImageInfo> image_infos;
+    std::vector<VkWriteDescriptorSet> descriptor_writes;
+    VkDescriptorSetAllocateInfo descriptor_set_allocate_info;
+
+    // Allocate descriptors for the materials
+    out_model->material_descriptor_sets = std::vector<VkDescriptorSet>(model.materials_count);
+    std::vector<VkDescriptorSetLayout> set_layouts(model.materials_count, context->graphics_pipeline.descriptor_set_layouts[1]);
+    descriptor_set_allocate_info = {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .descriptorPool = context->descriptor_pool,
+        .descriptorSetCount = model.materials_count,
+        .pSetLayouts = set_layouts.data()
+    };
+    VK_CHECK(vkAllocateDescriptorSets(
+        context->device.logical_device,
+        &descriptor_set_allocate_info,
+        out_model->material_descriptor_sets.data()));
+
+    // Image info for each texture
+    image_infos.reserve(model.textures_count);
+    for (uint32_t index = 0; index < model.textures_count; index++) {
+        image_infos.push_back({
+            .sampler = context->texture_sampler,
+            .imageView = out_model->textures[index].view,
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+        });
+    }
+
+    // Image info for the fallback texture
+    VkDescriptorImageInfo fallback_texture_image_info {
+        .sampler = context->texture_sampler,
+        .imageView = context->fallback_texture.view,
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    };
+
+    // Descriptor writes for each material
+    descriptor_writes.reserve(model.textures_count);
+    for (uint32_t index = 0; index < model.materials_count; index++) {
+        const tg3_material& material = model.materials[index];
+        const tg3_pbr_metallic_roughness& pbr_material = material.pbr_metallic_roughness;
+        const int color_texture_index = pbr_material.base_color_texture.index;
+
+        descriptor_writes.push_back({
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = nullptr,
+            .dstSet = out_model->material_descriptor_sets[index],
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = color_texture_index == -1
+                ? &fallback_texture_image_info
+                : &image_infos[color_texture_index],
+            .pBufferInfo = nullptr,
+            .pTexelBufferView = nullptr
+        });
+    }
+    vkUpdateDescriptorSets(
+        context->device.logical_device,
+        descriptor_writes.size(), descriptor_writes.data(),
+        0, nullptr);
+}
+
+bool vulkan_model_load_meshes(VulkanContext* context, const tg3_model& model, VulkanModel* out_model) {
+    bool success = true;
+    std::vector<Vertex3d> vertices;
+    std::vector<uint32_t> indices;
+
+    out_model->meshes.reserve(model.meshes_count);
+    for (uint32_t mesh_index = 0; mesh_index < model.meshes_count; mesh_index++) {
+        const tg3_mesh& mesh = model.meshes[mesh_index];
+
+        VulkanMesh vulkan_mesh;
+        vulkan_mesh.primitives.reserve(mesh.primitives_count);
+
+        for (uint32_t primitive_index = 0; primitive_index < mesh.primitives_count; primitive_index++) {
+            const tg3_primitive& primitive = mesh.primitives[primitive_index];
 
             // Get position attribute
             RendererModelAttribute position_attribute;
-            if (!vulkan_model_get_attribute(&model, &primitive, "POSITION", &position_attribute)) {
-                log_error("Error loading model %s. Mesh %u primitive %u has no attribute POSITION.", path, mesh_index, primitive_index);
+            if (!vulkan_model_get_attribute(model, primitive, "POSITION", &position_attribute)) {
+                log_error("Error loading model. Mesh %u primitive %u has no attribute POSITION.", mesh_index, primitive_index);
                 success = false;
                 goto end;
             }
 
             // Get normal attribute
             RendererModelAttribute normal_attribute;
-            if (!vulkan_model_get_attribute(&model, &primitive, "NORMAL", &normal_attribute)) {
-                log_error("Error loading model %s. Mesh %u primitive %u has no attribute POSITION.", path, mesh_index, primitive_index);
+            if (!vulkan_model_get_attribute(model, primitive, "NORMAL", &normal_attribute)) {
+                log_error("Error loading model. Mesh %u primitive %u has no attribute POSITION.", mesh_index, primitive_index);
                 success = false;
                 goto end;
             }
 
             // Get tex coord attribute
             RendererModelAttribute tex_coord_attribute;
-            bool has_tex_coords = vulkan_model_get_attribute(&model, &primitive, "TEXCOORD_0", &tex_coord_attribute);
+            bool has_tex_coords = vulkan_model_get_attribute(model, primitive, "TEXCOORD_0", &tex_coord_attribute);
             if (!has_tex_coords) {
-                log_warn("Model %s has no attribute TEXCOORD_0.", path);
+                log_warn("Model has no attribute TEXCOORD_0.");
             }
 
             // Store vertices
@@ -141,34 +350,16 @@ bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* ou
                 }
             }
 
-            // Get material
-            const tg3_material& material = model.materials[primitive.material];
-            SDL_Surface* color_surface = vulkan_model_load_image_surface(&model, &material.pbr_metallic_roughness.base_color_texture);
-            if (!color_surface) {
-                log_error("Failed to load model %s. Could not load color surface.", path);
-                success = false;
-                goto end;
-            }
-
-            // Create model textures
-            success = vulkan_image_create_textures(context, {
-                .mipmap_type = VULKAN_IMAGE_MIPMAP_SCALED,
-                .surface_count = 1,
-                .surfaces = &color_surface
-            }, &out_model->color_texture);
-
-            // Regardless of fail / success, clean up surfaces
-            SDL_DestroySurface(color_surface);
-
-            if (!success) {
-                log_error("Failed to create model textures.");
-                success = false;
-                goto end;
-            }
+            vulkan_mesh.primitives.push_back({
+                .first_index = (uint32_t)(indices.size() - index_accessor.count),
+                .index_count = (uint32_t)index_accessor.count,
+                .material_index = primitive.material == -1
+                    ? VULKAN_MESH_MATERIAL_NONE
+                    : (uint32_t)primitive.material
+            });
         } // End for each primitive
 
-        // TODO: remove me
-        break;
+        out_model->meshes.push_back(vulkan_mesh);
     } // End for each mesh
 
     // Create vertex buffer
@@ -207,116 +398,71 @@ bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* ou
         .data = indices.data()
     });
 
-    out_model->index_count = indices.size();
-
-    // Create model descriptor set
-    descriptor_set_allocate_info = {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .pNext = nullptr,
-        .descriptorPool = context->descriptor_pool,
-        .descriptorSetCount = 1,
-        .pSetLayouts = &context->graphics_pipeline.descriptor_set_layouts[1]
-    };
-    VK_CHECK(vkAllocateDescriptorSets(
-        context->device.logical_device,
-        &descriptor_set_allocate_info,
-        &out_model->descriptor_set));
-
-    // Write model descriptor set
-    image_info = {
-        .sampler = context->texture_sampler,
-        .imageView = out_model->color_texture.view,
-        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    };
-    descriptor_write = {
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .pNext = nullptr,
-        .dstSet = out_model->descriptor_set,
-        .dstBinding = 0,
-        .dstArrayElement = 0,
-        .descriptorCount = 1,
-        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .pImageInfo = &image_info,
-        .pBufferInfo = nullptr,
-        .pTexelBufferView = nullptr
-    };
-    vkUpdateDescriptorSets(context->device.logical_device, 1, &descriptor_write, 0, nullptr);
-
-    end:
-        tg3_model_free(&model);
-        tg3_error_stack_free(&error_stack);
-
-        log_debug("Model load %s finished with success ? %i", path, (int)success);
-        return success;
+end:
+    return success;
 }
 
-void vulkan_model_destroy(VulkanContext* context, VulkanModel* model) {
-    vulkan_buffer_destroy(context, &model->vertex_buffer);
-    vulkan_buffer_destroy(context, &model->index_buffer);
-    vulkan_image_destroy(context, &model->color_texture);
-}
-
-LogLevel vulkan_model_tg3_error_severity_to_log_level(tg3_severity severity) {
-    switch (severity) {
-        case TG3_SEVERITY_ERROR:
-            return LOG_LEVEL_ERROR;
-        case TG3_SEVERITY_WARNING:
-            return LOG_LEVEL_WARN;
-        case TG3_SEVERITY_INFO:
-            return LOG_LEVEL_INFO;
+void vulkan_model_load_nodes(const tg3_model& model, VulkanModel* out_model) {
+    out_model->nodes = std::vector<VulkanNode>(model.nodes_count);
+    for (uint32_t node_index = 0; node_index < model.nodes_count; node_index++) {
+        out_model->nodes[node_index].parent_index = VULKAN_NODE_PARENT_NONE;
     }
-}
 
-bool vulkan_model_get_attribute(const tg3_model* model, const tg3_primitive* primitive, const char* key, RendererModelAttribute* out_attribute) {
-    // Find the attribute index that matches the key
-    uint32_t attribute_index;
-    for (attribute_index = 0; attribute_index < primitive->attributes_count; attribute_index++) {
-        const tg3_str_int_pair* attribute = &primitive->attributes[attribute_index];
-        if (strcmp(attribute->key.data, key) == 0) {
-            break;
+    for (uint32_t node_index = 0; node_index < model.nodes_count; node_index++) {
+        const tg3_node& node = model.nodes[node_index];
+
+        // Copy local transform (double matrix -> float matrix)
+        for (uint32_t index = 0; index < 16; index++) {
+            out_model->nodes[node_index].local_transform.data[index] = (float)node.matrix[index];
+        }
+
+        // Mesh
+        out_model->nodes[node_index].mesh_index = node.mesh == -1
+            ? VULKAN_NODE_MESH_NONE
+            : (uint32_t)node.mesh;
+
+        // Children
+        out_model->nodes[node_index].child_indices.reserve(node.children_count);
+        for (uint32_t child_index = 0; child_index < node.children_count; child_index++) {
+            out_model->nodes[node_index].child_indices.push_back(node.children[child_index]);
+            out_model->nodes[node.children[child_index]].parent_index = node_index;
         }
     }
-
-    if (attribute_index == primitive->attributes_count) {
-        return false;
-    }
-
-    const tg3_str_int_pair* attribute = &primitive->attributes[attribute_index];
-    out_attribute->accessor = &model->accessors[attribute->value];
-    out_attribute->buffer_view = &model->buffer_views[out_attribute->accessor->buffer_view];
-    out_attribute->buffer = &model->buffers[out_attribute->buffer_view->buffer];
-
-    return true;
 }
 
-SDL_Surface* vulkan_model_load_image_surface(const tg3_model* model, const tg3_texture_info* texture_info) {
-    SDL_IOStream* image_stream;
+void vulkan_model_render(VulkanContext* context, VulkanModel* model) {
+    VkDeviceSize offsets = 0;
+    vkCmdBindVertexBuffers(
+        context->graphics_command_buffers[context->frame_index],
+        0, 1, &model->vertex_buffer.handle, &offsets);
+    vkCmdBindIndexBuffer(
+        context->graphics_command_buffers[context->frame_index],
+        model->index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
 
-    const tg3_texture& texture = model->textures[texture_info->index];
-    const tg3_image& image = model->images[texture.source];
-    log_debug("Loading image with mime type %s.", image.mime_type.data);
-
-    if (image.buffer_view != -1) {
-        log_debug("Loading model image from buffer view %i", image.buffer_view);
-
-        const tg3_buffer_view& buffer_view = model->buffer_views[image.buffer_view];
-        const tg3_buffer& buffer = model->buffers[buffer_view.buffer];
-
-        image_stream = SDL_IOFromConstMem(buffer.data.data + buffer_view.byte_offset, buffer_view.byte_length);
-        if (!image_stream) {
-            log_error("Failed to create IO stream for model image surface: %s.", SDL_GetError());
-            return nullptr;
+    for (uint32_t node_index = 0; node_index < model->nodes.size(); node_index++) {
+        const VulkanNode& node = model->nodes[node_index];
+        if (node.parent_index != VULKAN_NODE_PARENT_NONE ||
+            node.mesh_index == VULKAN_NODE_MESH_NONE
+        ) {
+            continue;
         }
-    } else if (image.uri.len != 0) {
-        log_debug("Loading model image with uri %s.", image.uri.data);
 
-        char image_path[256];
-        sprintf(image_path, "../res/model/%s", image.uri.data);
-        image_stream = SDL_IOFromFile(image_path, "rb");
-    } else {
-        log_error("No way to load image.");
-        return nullptr;
+        const VulkanMesh& mesh = model->meshes[node.mesh_index];
+        for (uint32_t primitive_index = 0; primitive_index < mesh.primitives.size(); primitive_index++) {
+            const VulkanPrimitive& primitive = mesh.primitives[primitive_index];
+
+            // Bind material
+            if (primitive.material_index != VULKAN_MESH_MATERIAL_NONE) {
+                vkCmdBindDescriptorSets(
+                    context->graphics_command_buffers[context->frame_index],
+                    VK_PIPELINE_BIND_POINT_GRAPHICS, context->graphics_pipeline.layout,
+                    1, 1, &context->model.material_descriptor_sets[primitive.material_index],
+                    0, nullptr);
+            }
+
+            vkCmdDrawIndexed(
+                context->graphics_command_buffers[context->frame_index],
+                primitive.index_count, 1, primitive.first_index, 0, 0);
+        }
     }
-
-    return vulkan_image_load_surface(image_stream, 0);
 }

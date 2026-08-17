@@ -50,9 +50,14 @@ bool vulkan_buffer_create(VulkanContext* context, VulkanBufferCreateParams param
 }
 
 void vulkan_buffer_destroy(VulkanContext* context, VulkanBuffer* buffer) {
-    vkFreeMemory(context->device.logical_device, buffer->memory, context->allocator);
-    vkDestroyBuffer(context->device.logical_device, buffer->handle, context->allocator);
-    buffer->handle = VK_NULL_HANDLE;
+    if (buffer->memory != VK_NULL_HANDLE) {
+        vkFreeMemory(context->device.logical_device, buffer->memory, context->allocator);
+        buffer->memory = VK_NULL_HANDLE;
+    }
+    if (buffer->handle != VK_NULL_HANDLE) {
+        vkDestroyBuffer(context->device.logical_device, buffer->handle, context->allocator);
+        buffer->handle = VK_NULL_HANDLE;
+    }
 }
 
 void vulkan_buffer_bind(VulkanContext* context, VulkanBuffer* buffer, uint64_t offset) {
