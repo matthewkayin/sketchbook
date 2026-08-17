@@ -19,8 +19,8 @@ struct LightData {
     float4 light_color;
 };
 
-[[vk::binding(0, 0)]] ConstantBuffer<UniformBuffer> ubo;
-[[vk::binding(1, 0)]] StructuredBuffer<LightData> light_data;
+[[vk::binding(0, 0)]] StructuredBuffer<LightData> light_data;
+[[vk::binding(1, 0)]] ConstantBuffer<UniformBuffer> ubo;
 [[vk::binding(2, 0)]] Sampler2D hatch_texture0;
 [[vk::binding(3, 0)]] Sampler2D hatch_texture1;
 

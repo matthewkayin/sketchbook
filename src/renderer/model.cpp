@@ -6,6 +6,7 @@
 #include "renderer/buffer.h"
 #include <tinygltf/tiny_gltf_v3.h>
 #include <SDL3/SDL_image.h>
+#include <cstdio>
 
 struct RendererModelAttribute {
     const tg3_accessor* accessor;
@@ -164,7 +165,6 @@ bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* ou
                 success = false;
                 goto end;
             }
-
         } // End for each primitive
 
         // TODO: remove me
@@ -215,7 +215,7 @@ bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* ou
         .pNext = nullptr,
         .descriptorPool = context->descriptor_pool,
         .descriptorSetCount = 1,
-        .pSetLayouts = &context->graphics_pipeline.model_descriptor_set_layout
+        .pSetLayouts = &context->graphics_pipeline.descriptor_set_layouts[1]
     };
     VK_CHECK(vkAllocateDescriptorSets(
         context->device.logical_device,
@@ -290,21 +290,31 @@ bool vulkan_model_get_attribute(const tg3_model* model, const tg3_primitive* pri
 }
 
 SDL_Surface* vulkan_model_load_image_surface(const tg3_model* model, const tg3_texture_info* texture_info) {
+    SDL_IOStream* image_stream;
+
     const tg3_texture& texture = model->textures[texture_info->index];
     const tg3_image& image = model->images[texture.source];
     log_debug("Loading image with mime type %s.", image.mime_type.data);
 
-    if (image.buffer_view == -1) {
-        log_error("Image has no buffer view.");
-        return nullptr;
-    }
+    if (image.buffer_view != -1) {
+        log_debug("Loading model image from buffer view %i", image.buffer_view);
 
-    const tg3_buffer_view& buffer_view = model->buffer_views[image.buffer_view];
-    const tg3_buffer& buffer = model->buffers[buffer_view.buffer];
+        const tg3_buffer_view& buffer_view = model->buffer_views[image.buffer_view];
+        const tg3_buffer& buffer = model->buffers[buffer_view.buffer];
 
-    SDL_IOStream* image_stream = SDL_IOFromConstMem(buffer.data.data + buffer_view.byte_offset, buffer_view.byte_length);
-    if (!image_stream) {
-        log_error("Failed to create IO stream for model image surface: %s.", SDL_GetError());
+        image_stream = SDL_IOFromConstMem(buffer.data.data + buffer_view.byte_offset, buffer_view.byte_length);
+        if (!image_stream) {
+            log_error("Failed to create IO stream for model image surface: %s.", SDL_GetError());
+            return nullptr;
+        }
+    } else if (image.uri.len != 0) {
+        log_debug("Loading model image with uri %s.", image.uri.data);
+
+        char image_path[256];
+        sprintf(image_path, "../res/model/%s", image.uri.data);
+        image_stream = SDL_IOFromFile(image_path, "rb");
+    } else {
+        log_error("No way to load image.");
         return nullptr;
     }
 

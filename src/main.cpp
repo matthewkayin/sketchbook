@@ -10,6 +10,7 @@
 static const float CAMERA_SCROLL_SPEED = 100.0f;
 static const float CAMERA_YAW_SPEED = -75.0f * SBK_DEG_TO_RAD;
 static const float CAMERA_PITCH_SPEED = 75.0f * SBK_DEG_TO_RAD;
+static const float MODEL_ROTATE_SPEED = 75.0f * SBK_DEG_TO_RAD;
 
 struct AppState {
     SDL_Window* window;
@@ -25,7 +26,7 @@ struct AppState {
     float camera_yaw;
     float camera_distance;
 
-    float light_angle;
+    float model_angle;
 };
 static AppState state;
 
@@ -33,8 +34,6 @@ bool app_init();
 void app_quit();
 bool app_is_running();
 double app_timekeep();
-
-static const float LIGHT_DISTANCE = 2.0f;
 
 int main() {
     if (!app_init()) {
@@ -44,10 +43,10 @@ int main() {
     state.camera_pitch = 45.0f * SBK_DEG_TO_RAD;
     state.camera_yaw = 45.0f * SBK_DEG_TO_RAD;
     state.camera_distance = 10.0f;
-    state.light_angle = 45.0f * SBK_DEG_TO_RAD;
+    state.model_angle = 0.0f;
 
     renderer_set_light_data({
-        .light_position = vec4(LIGHT_DISTANCE * cos(state.light_angle), 2.0f, LIGHT_DISTANCE * sin(state.light_angle), 0.0f),
+        .light_position = vec4(2.0f, 2.0f, -2.0f, 0.0f),
         .light_color = vec4(1.0f, 1.0f, 1.0f, 1.0f)
     });
 
@@ -67,21 +66,22 @@ int main() {
 
         if (input_is_mouse_button_pressed(INPUT_MOUSE_BUTTON_LEFT)) {
             ivec2 mouse_motion = input_get_mouse_motion();
-            if (input_is_key_pressed(SDL_SCANCODE_LSHIFT)) {
-                state.light_angle += mouse_motion.x * CAMERA_YAW_SPEED * delta;
-                renderer_set_light_data({
-                    .light_position = vec4(LIGHT_DISTANCE * cos(state.light_angle), 2.0f, LIGHT_DISTANCE * sin(state.light_angle), 0.0f),
-                    .light_color = vec4(1.0f, 1.0f, 1.0f, 1.0f)
-                });
-            } else {
-                state.camera_yaw += mouse_motion.x * CAMERA_YAW_SPEED * delta;
-                state.camera_pitch += mouse_motion.y * CAMERA_PITCH_SPEED * delta;
-                state.camera_pitch = std::clamp(state.camera_pitch, -89.0f * SBK_DEG_TO_RAD, 89.0f * SBK_DEG_TO_RAD);
-            }
+            state.camera_yaw += mouse_motion.x * CAMERA_YAW_SPEED * delta;
+            state.camera_pitch += mouse_motion.y * CAMERA_PITCH_SPEED * delta;
+            state.camera_pitch = std::clamp(state.camera_pitch, -89.0f * SBK_DEG_TO_RAD, 89.0f * SBK_DEG_TO_RAD);
         }
 
+        float model_rotation_direction = 0.0f;
+        if (input_is_key_pressed(SDL_SCANCODE_A)) {
+            model_rotation_direction = -1.0f;
+        }
+        if (input_is_key_pressed(SDL_SCANCODE_D)) {
+            model_rotation_direction = 1.0f;
+        }
+        state.model_angle += model_rotation_direction * MODEL_ROTATE_SPEED * delta;
+
         renderer_draw_frame({
-            .model = mat4::identity(),
+            .model = quat::from_axis_angle(vec3::up(), state.model_angle, true).to_rotation_matrix(vec3(0.0f, 0.0f, 0.0f)),
             .view = mat4::look_at(camera_position, vec3(0.0f, 0.0f, 0.0f), vec3::up()),
             .view_position = camera_position
         });

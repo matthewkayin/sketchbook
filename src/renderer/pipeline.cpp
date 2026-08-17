@@ -3,12 +3,12 @@
 #include "core/logger.h"
 #include "renderer/util.h"
 #include "util/file.h"
-#include "core/math.h"
+#include <algorithm>
 
-bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out_pipeline) {
+bool vulkan_pipeline_create(VulkanContext* context, VulkanPipelineCreateParams params, VulkanPipeline* out_pipeline) {
     // Read shader file
     std::vector<uint8_t> shader_contents;
-    if (!file_read_blob("shader/shader.spv", &shader_contents)) {
+    if (!file_read_blob(params.shader_path, &shader_contents)) {
         return false;
     }
 
@@ -49,28 +49,8 @@ bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out
     // Vertex input
     VkVertexInputBindingDescription vertex_binding_description {
         .binding = 0,
-        .stride = sizeof(Vertex3d),
+        .stride = params.vertex_input_stride,
         .inputRate = VK_VERTEX_INPUT_RATE_VERTEX
-    };
-    VkVertexInputAttributeDescription vertex_attribute_descriptions[] = {
-        {
-            .location = 0,
-            .binding = 0,
-            .format = VK_FORMAT_R32G32B32_SFLOAT,
-            .offset = offsetof(Vertex3d, position)
-        },
-        {
-            .location = 1,
-            .binding = 0,
-            .format = VK_FORMAT_R32G32B32_SFLOAT,
-            .offset = offsetof(Vertex3d, normal)
-        },
-        {
-            .location = 2,
-            .binding = 0,
-            .format = VK_FORMAT_R32G32_SFLOAT,
-            .offset = offsetof(Vertex3d, tex_coord)
-        }
     };
     VkPipelineVertexInputStateCreateInfo vertex_input_state {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
@@ -78,8 +58,8 @@ bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out
         .flags = 0,
         .vertexBindingDescriptionCount = 1,
         .pVertexBindingDescriptions = &vertex_binding_description,
-        .vertexAttributeDescriptionCount = array_length(vertex_attribute_descriptions),
-        .pVertexAttributeDescriptions = vertex_attribute_descriptions
+        .vertexAttributeDescriptionCount = params.attribute_count,
+        .pVertexAttributeDescriptions = params.attributes
     };
 
     // Input assembly state
@@ -201,84 +181,52 @@ bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out
         .pDynamicStates = dynamic_states
     };
 
-    // Global descriptor set layout
-    VkDescriptorSetLayoutBinding global_descriptor_set_layout_bindings[] {
-        {
-            .binding = 0,
-            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = nullptr
-        },
-        {
-            .binding = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = nullptr
-        },
-        {
-            .binding = 2,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = nullptr
-        },
-        {
-            .binding = 3,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = nullptr
-        }
-    };
-    VkDescriptorSetLayoutCreateInfo global_descriptor_set_layout_create_info {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .bindingCount = array_length(global_descriptor_set_layout_bindings),
-        .pBindings = global_descriptor_set_layout_bindings
-    };
-    VK_CHECK(vkCreateDescriptorSetLayout(
-        context->device.logical_device,
-        &global_descriptor_set_layout_create_info,
-        context->allocator,
-        &out_pipeline->global_descriptor_set_layout));
+    // Count descriptor sets
+    uint32_t descriptor_set_count = 0;
+    for (uint32_t index = 0; index < params.descriptor_count; index++) {
+        descriptor_set_count = std::max(descriptor_set_count, params.descriptors[index].set + 1);
+    }
 
-    // Model descriptor set layout
-    VkDescriptorSetLayoutBinding model_descriptor_set_layout_bindings[] {
-        {
-            .binding = 0,
-            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = 1,
-            .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
-            .pImmutableSamplers = nullptr
+    out_pipeline->descriptor_set_layouts = std::vector<VkDescriptorSetLayout>(descriptor_set_count);
+    for (uint32_t descriptor_set_index = 0; descriptor_set_index < descriptor_set_count; descriptor_set_index++) {
+        std::vector<VkDescriptorSetLayoutBinding> bindings;
+        for (uint32_t index = 0; index < params.descriptor_count; index++) {
+            if (params.descriptors[index].set == descriptor_set_index) {
+                bindings.push_back({
+                    .binding = params.descriptors[index].binding,
+                    .descriptorType = params.descriptors[index].type,
+                    .descriptorCount = 1,
+                    .stageFlags = params.descriptors[index].stage_flags,
+                    .pImmutableSamplers = nullptr
+                });
+            }
         }
-    };
-    VkDescriptorSetLayoutCreateInfo model_descriptor_set_layout_create_info {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .bindingCount = array_length(model_descriptor_set_layout_bindings),
-        .pBindings = model_descriptor_set_layout_bindings
-    };
-    VK_CHECK(vkCreateDescriptorSetLayout(
-        context->device.logical_device,
-        &model_descriptor_set_layout_create_info,
-        context->allocator,
-        &out_pipeline->model_descriptor_set_layout));
+        if (bindings.empty()) {
+            // TODO: clean things up
+            log_error("Pipeline descriptor set %u has no bindings.", descriptor_set_index);
+            return false;
+        }
 
-    // Create layout
-    VkDescriptorSetLayout descriptor_set_layouts[] = {
-        out_pipeline->global_descriptor_set_layout,
-        out_pipeline->model_descriptor_set_layout
-    };
+        VkDescriptorSetLayoutCreateInfo descriptor_set_layout_create_info {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .bindingCount = (uint32_t)bindings.size(),
+            .pBindings = bindings.data()
+        };
+        VK_CHECK(vkCreateDescriptorSetLayout(
+            context->device.logical_device,
+            &descriptor_set_layout_create_info,
+            context->allocator,
+            &out_pipeline->descriptor_set_layouts[descriptor_set_index]));
+    }
+
     VkPipelineLayoutCreateInfo layout_create_info {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
         .pNext = nullptr,
         .flags = 0,
-        .setLayoutCount = array_length(descriptor_set_layouts),
-        .pSetLayouts = descriptor_set_layouts,
+        .setLayoutCount = (uint32_t)out_pipeline->descriptor_set_layouts.size(),
+        .pSetLayouts = out_pipeline->descriptor_set_layouts.data(),
         .pushConstantRangeCount = 0,
         .pPushConstantRanges = nullptr
     };
@@ -336,6 +284,8 @@ bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out
 void vulkan_pipeline_destroy(VulkanContext* context, VulkanPipeline* pipeline) {
     vkDestroyPipeline(context->device.logical_device, pipeline->handle, context->allocator);
     vkDestroyPipelineLayout(context->device.logical_device, pipeline->layout, context->allocator);
-    vkDestroyDescriptorSetLayout(context->device.logical_device, pipeline->global_descriptor_set_layout, context->allocator);
-    vkDestroyDescriptorSetLayout(context->device.logical_device, pipeline->model_descriptor_set_layout, context->allocator);
+
+    for (uint32_t index = 0; index < pipeline->descriptor_set_layouts.size(); index++) {
+        vkDestroyDescriptorSetLayout(context->device.logical_device, pipeline->descriptor_set_layouts[index], context->allocator);
+    }
 }

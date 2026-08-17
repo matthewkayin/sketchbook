@@ -106,7 +106,66 @@ bool renderer_init(SDL_Window* window) {
         return false;
     }
     vulkan_swapchain_create(&context);
-    if (!vulkan_pipeline_create_graphics(&context, &context.graphics_pipeline)) {
+
+    // Create graphics pipeline
+    VkVertexInputAttributeDescription graphics_pipeline_attributes[] = {
+        {
+            .location = 0,
+            .binding = 0,
+            .format = VK_FORMAT_R32G32B32_SFLOAT,
+            .offset = offsetof(Vertex3d, position)
+        },
+        {
+            .location = 1,
+            .binding = 0,
+            .format = VK_FORMAT_R32G32B32_SFLOAT,
+            .offset = offsetof(Vertex3d, normal)
+        },
+        {
+            .location = 2,
+            .binding = 0,
+            .format = VK_FORMAT_R32G32_SFLOAT,
+            .offset = offsetof(Vertex3d, tex_coord)
+        }
+    };
+    VulkanPipelineDescriptor graphics_pipeline_descriptors[] = {
+        // Global descriptor set
+        {
+            .set = 0, .binding = 0,
+            .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
+        },
+        {
+            .set = 0, .binding = 1,
+            .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+            .stage_flags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
+        },
+        {
+            .set = 0, .binding = 2,
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
+        },
+        {
+            .set = 0, .binding = 3,
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
+        },
+        // Model descriptor set
+        {
+            .set = 1, .binding = 0,
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
+        }
+    };
+    VulkanPipelineCreateParams graphics_pipeline_create_params {
+        .shader_path = "shader/shader.spv",
+        .vertex_input_stride = sizeof(Vertex3d),
+        .attribute_count = array_length(graphics_pipeline_attributes),
+        .attributes = graphics_pipeline_attributes,
+        .descriptor_count = array_length(graphics_pipeline_descriptors),
+        .descriptors = graphics_pipeline_descriptors
+    };
+    if (!vulkan_pipeline_create(&context, graphics_pipeline_create_params, &context.graphics_pipeline)) {
         return false;
     }
 
@@ -133,7 +192,7 @@ bool renderer_init(SDL_Window* window) {
     renderer_create_texture_sampler();
     renderer_create_uniform_objects();
 
-    if (!vulkan_model_load(&context, "../res/model/teacup.glb", &context.model)) {
+    if (!vulkan_model_load(&context, "../res/model/avocado.glb", &context.model)) {
         return false;
     }
 
@@ -316,10 +375,6 @@ void renderer_draw_frame(RenderPacket packet) {
     vkCmdBeginRendering(
         context.graphics_command_buffers[context.frame_index],
         &rendering_info);
-    vkCmdBindPipeline(
-        context.graphics_command_buffers[context.frame_index],
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        context.graphics_pipeline.handle);
 
     VkViewport viewport {
         .x = 0,
@@ -329,13 +384,30 @@ void renderer_draw_frame(RenderPacket packet) {
         .minDepth = 0.0f,
         .maxDepth = 1.0f
     };
-    vkCmdSetViewport(context.graphics_command_buffers[context.frame_index], 0, 1, &viewport);
-
     VkRect2D scissor = {
         .offset = { .x = 0, .y = 0 },
         .extent = context.swapchain.extent
     };
+
+    // GRAPHICS PIPELINE
+    vkCmdBindPipeline(
+        context.graphics_command_buffers[context.frame_index],
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        context.graphics_pipeline.handle);
+    vkCmdSetViewport(context.graphics_command_buffers[context.frame_index], 0, 1, &viewport);
     vkCmdSetScissor(context.graphics_command_buffers[context.frame_index], 0, 1, &scissor);
+
+    // Bind global descriptor set
+    vkCmdBindDescriptorSets(
+        context.graphics_command_buffers[context.frame_index],
+        VK_PIPELINE_BIND_POINT_GRAPHICS, context.graphics_pipeline.layout,
+        0, 1, &context.global_descriptor_sets[context.frame_index], 0, nullptr);
+
+    // Bind model descriptor set
+    vkCmdBindDescriptorSets(
+        context.graphics_command_buffers[context.frame_index],
+        VK_PIPELINE_BIND_POINT_GRAPHICS, context.graphics_pipeline.layout,
+        1, 1, &context.model.descriptor_set, 0, nullptr);
 
     // DRAW MODEL
 
@@ -359,18 +431,6 @@ void renderer_draw_frame(RenderPacket packet) {
         .size = sizeof(ubo),
         .data = &ubo
     });
-
-    // Bind global descriptor set
-    vkCmdBindDescriptorSets(
-        context.graphics_command_buffers[context.frame_index],
-        VK_PIPELINE_BIND_POINT_GRAPHICS, context.graphics_pipeline.layout,
-        0, 1, &context.descriptor_sets[context.frame_index], 0, nullptr);
-
-    // Bind model descriptor set
-    vkCmdBindDescriptorSets(
-        context.graphics_command_buffers[context.frame_index],
-        VK_PIPELINE_BIND_POINT_GRAPHICS, context.graphics_pipeline.layout,
-        1, 1, &context.model.descriptor_set, 0, nullptr);
 
     // Bind model vertex and index buffers
     VkDeviceSize offsets = 0;
@@ -667,7 +727,7 @@ void renderer_create_uniform_objects() {
         },
         {
             .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .descriptorCount = VULKAN_MAX_FRAMES_IN_FLIGHT
+            .descriptorCount = VULKAN_MAX_FRAMES_IN_FLIGHT * 2
         },
         {
             .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -690,8 +750,8 @@ void renderer_create_uniform_objects() {
 
     // Create descriptor sets
     VkDescriptorSetLayout layouts[VULKAN_MAX_FRAMES_IN_FLIGHT] = {
-        context.graphics_pipeline.global_descriptor_set_layout,
-        context.graphics_pipeline.global_descriptor_set_layout
+        context.graphics_pipeline.descriptor_set_layouts[0],
+        context.graphics_pipeline.descriptor_set_layouts[0]
     };
     VkDescriptorSetAllocateInfo descriptor_set_allocate_info {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -701,10 +761,32 @@ void renderer_create_uniform_objects() {
         .pSetLayouts = layouts
     };
     VK_CHECK(vkAllocateDescriptorSets(
-        context.device.logical_device, &descriptor_set_allocate_info, context.descriptor_sets));
+        context.device.logical_device, &descriptor_set_allocate_info, context.global_descriptor_sets));
 
     // Write descriptor sets
     std::vector<VkWriteDescriptorSet> descriptor_writes;
+
+    // Light data storage buffer descriptors
+    VkDescriptorBufferInfo light_data_buffer_info {
+        .buffer = context.light_data_buffer.handle,
+        .offset = 0,
+        .range = sizeof(RendererLightData)
+    };
+    for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
+        descriptor_writes.push_back({
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = nullptr,
+            .dstSet = context.global_descriptor_sets[index],
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pImageInfo = nullptr,
+            .pBufferInfo = &light_data_buffer_info,
+            .pTexelBufferView = nullptr
+        });
+    }
+
 
     // Uniform buffer descriptors
     VkDescriptorBufferInfo uniform_buffer_infos[VULKAN_MAX_FRAMES_IN_FLIGHT];
@@ -718,34 +800,13 @@ void renderer_create_uniform_objects() {
         descriptor_writes.push_back({
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .pNext = nullptr,
-            .dstSet = context.descriptor_sets[index],
-            .dstBinding = 0,
+            .dstSet = context.global_descriptor_sets[index],
+            .dstBinding = 1,
             .dstArrayElement = 0,
             .descriptorCount = 1,
             .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
             .pImageInfo = nullptr,
             .pBufferInfo = &uniform_buffer_infos[index],
-            .pTexelBufferView = nullptr
-        });
-    }
-
-    // Light data storage buffer descriptors
-    VkDescriptorBufferInfo light_data_buffer_info {
-        .buffer = context.light_data_buffer.handle,
-        .offset = 0,
-        .range = sizeof(RendererLightData)
-    };
-    for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
-        descriptor_writes.push_back({
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = nullptr,
-            .dstSet = context.descriptor_sets[index],
-            .dstBinding = 1,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .pImageInfo = nullptr,
-            .pBufferInfo = &light_data_buffer_info,
             .pTexelBufferView = nullptr
         });
     }
@@ -762,7 +823,7 @@ void renderer_create_uniform_objects() {
             descriptor_writes.push_back({
                 .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                 .pNext = nullptr,
-                .dstSet = context.descriptor_sets[index],
+                .dstSet = context.global_descriptor_sets[index],
                 .dstBinding = 2 + image_index,
                 .dstArrayElement = 0,
                 .descriptorCount = 1,

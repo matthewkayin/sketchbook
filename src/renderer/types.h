@@ -61,8 +61,7 @@ struct VulkanSwapchain {
 struct VulkanPipeline {
     VkPipeline handle;
     VkPipelineLayout layout;
-    VkDescriptorSetLayout global_descriptor_set_layout;
-    VkDescriptorSetLayout model_descriptor_set_layout;
+    std::vector<VkDescriptorSetLayout> descriptor_set_layouts;
 };
 
 struct VulkanBuffer {
@@ -106,7 +105,7 @@ struct VulkanContext {
 
     // Descriptors
     VkDescriptorPool descriptor_pool;
-    VkDescriptorSet descriptor_sets[VULKAN_MAX_FRAMES_IN_FLIGHT];
+    VkDescriptorSet global_descriptor_sets[VULKAN_MAX_FRAMES_IN_FLIGHT];
 
     // Shader resources
     VulkanBuffer uniform_buffers[VULKAN_MAX_FRAMES_IN_FLIGHT];
