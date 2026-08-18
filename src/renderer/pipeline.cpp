@@ -227,8 +227,8 @@ bool vulkan_pipeline_create(VulkanContext* context, VulkanPipelineCreateParams p
         .flags = 0,
         .setLayoutCount = (uint32_t)out_pipeline->descriptor_set_layouts.size(),
         .pSetLayouts = out_pipeline->descriptor_set_layouts.data(),
-        .pushConstantRangeCount = 0,
-        .pPushConstantRanges = nullptr
+        .pushConstantRangeCount = params.push_constant_count,
+        .pPushConstantRanges = params.push_constants
     };
     VK_CHECK(vkCreatePipelineLayout(
         context->device.logical_device,

@@ -16,6 +16,8 @@ struct VulkanPipelineCreateParams {
     VkVertexInputAttributeDescription* attributes;
     uint32_t descriptor_count;
     VulkanPipelineDescriptor* descriptors;
+    uint32_t push_constant_count;
+    VkPushConstantRange* push_constants;
 };
 
 bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out_pipeline);

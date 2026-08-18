@@ -159,13 +159,23 @@ bool renderer_init(SDL_Window* window) {
             .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
         }
     };
+    VkPushConstantRange graphics_push_constants[] = {
+        {
+            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            .offset = 0,
+            .size = sizeof(RendererPushConstants)
+        }
+    };
+
     VulkanPipelineCreateParams graphics_pipeline_create_params {
         .shader_path = "shader/shader.spv",
         .vertex_input_stride = sizeof(Vertex3d),
         .attribute_count = array_length(graphics_pipeline_attributes),
         .attributes = graphics_pipeline_attributes,
         .descriptor_count = array_length(graphics_pipeline_descriptors),
-        .descriptors = graphics_pipeline_descriptors
+        .descriptors = graphics_pipeline_descriptors,
+        .push_constant_count = array_length(graphics_push_constants),
+        .push_constants = graphics_push_constants
     };
     if (!vulkan_pipeline_create(&context, graphics_pipeline_create_params, &context.graphics_pipeline)) {
         return false;
@@ -412,7 +422,6 @@ void renderer_draw_frame(RenderPacket packet) {
     // DRAW MODEL
 
     RendererUniformBufferObject ubo {
-        .model = packet.model,
         .view = packet.view,
         .projection = mat4::perspective(
             45.0f * SBK_DEG_TO_RAD,
@@ -432,7 +441,7 @@ void renderer_draw_frame(RenderPacket packet) {
         .data = &ubo
     });
 
-    vulkan_model_render(&context, &context.model);
+    vulkan_model_render(&context, context.model, mat4::identity());
 
     // END FRAME
 

@@ -4,6 +4,7 @@
 #include "core/math.h"
 #include "renderer/image.h"
 #include "renderer/buffer.h"
+#include "renderer/uniform_types.h"
 #include <tinygltf/tiny_gltf_v3.h>
 #include <SDL3/SDL_image.h>
 #include <cstdio>
@@ -22,6 +23,7 @@ bool vulkan_model_load_textures(VulkanContext* context, const tg3_model& model, 
 void vulkan_model_load_materials(VulkanContext* context, const tg3_model& model, VulkanModel* out_model);
 bool vulkan_model_load_meshes(VulkanContext* context, const tg3_model& model, VulkanModel* out_model);
 void vulkan_model_load_nodes(const tg3_model& model, VulkanModel* out_model);
+void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, const VulkanNode& node, mat4 transform);
 
 bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* out_model) {
     bool success = true;
@@ -413,10 +415,10 @@ void vulkan_model_load_nodes(const tg3_model& model, VulkanModel* out_model) {
     for (uint32_t node_index = 0; node_index < model.nodes_count; node_index++) {
         const tg3_node& node = model.nodes[node_index];
 
-        // Copy local transform (double matrix -> float matrix)
-        for (uint32_t index = 0; index < 16; index++) {
-            out_model->nodes[node_index].local_transform.data[index] = (float)node.matrix[index];
-        }
+        const quat rotation = quat(node.rotation[0], node.rotation[1], node.rotation[2], node.rotation[3]);
+        const vec3 translation = vec3(node.translation[0], node.translation[1], node.translation[2]);
+        const vec3 scale = vec3(node.scale[0], node.scale[1], node.scale[2]);
+        out_model->nodes[node_index].local_transform =  mat4::scale(scale) * rotation.to_mat4() * mat4::translation(translation);
 
         // Mesh
         out_model->nodes[node_index].mesh_index = node.mesh == -1
@@ -432,51 +434,58 @@ void vulkan_model_load_nodes(const tg3_model& model, VulkanModel* out_model) {
     }
 }
 
-#include "core/input.h"
-void vulkan_model_render(VulkanContext* context, VulkanModel* model) {
+void vulkan_model_render(VulkanContext* context, const VulkanModel& model, mat4 transform) {
     VkDeviceSize offsets = 0;
     vkCmdBindVertexBuffers(
         context->graphics_command_buffers[context->frame_index],
-        0, 1, &model->vertex_buffer.handle, &offsets);
+        0, 1, &model.vertex_buffer.handle, &offsets);
     vkCmdBindIndexBuffer(
         context->graphics_command_buffers[context->frame_index],
-        model->index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
+        model.index_buffer.handle, 0, VK_INDEX_TYPE_UINT32);
 
-    static uint32_t node_chosen_index = 0;
-    if (input_is_key_just_pressed(SDL_SCANCODE_LEFT)) {
-        node_chosen_index--;
-    } else if (input_is_key_just_pressed(SDL_SCANCODE_RIGHT)) {
-        node_chosen_index++;
+    for (uint32_t node_index = 0; node_index < model.nodes.size(); node_index++) {
+        const VulkanNode& node = model.nodes[node_index];
+        if (node.parent_index != VULKAN_NODE_PARENT_NONE) {
+            continue;
+        }
+
+        vulkan_model_render_node(context, model, node, transform);
     }
-    for (uint32_t node_index = 0; node_index < model->nodes.size(); node_index++) {
-        const VulkanNode& node = model->nodes[node_index];
-        if (node_index != node_chosen_index) {
-            continue;
-        }
-        if (node.parent_index != VULKAN_NODE_PARENT_NONE ||
-            node.mesh_index == VULKAN_NODE_MESH_NONE
-        ) {
-            continue;
-        }
+}
 
-        const VulkanMesh& mesh = model->meshes[node.mesh_index];
-        for (uint32_t primitive_index = 0; primitive_index < mesh.primitives.size(); primitive_index++) {
-            const VulkanPrimitive& primitive = mesh.primitives[primitive_index];
+void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, const VulkanNode& node, mat4 transform) {
+    if (node.mesh_index == VULKAN_NODE_MESH_NONE) {
+        return;
+    }
 
-            // Bind material
-            if (primitive.material_index != VULKAN_MESH_MATERIAL_NONE) {
-                vkCmdBindDescriptorSets(
-                    context->graphics_command_buffers[context->frame_index],
-                    VK_PIPELINE_BIND_POINT_GRAPHICS, context->graphics_pipeline.layout,
-                    1, 1, &context->model.material_descriptor_sets[primitive.material_index],
-                    0, nullptr);
-            }
+    RendererPushConstants constants {
+        .model = transform * node.local_transform
+    };
 
-            vkCmdDrawIndexed(
+    // Render each primitive
+    const VulkanMesh& mesh = model.meshes[node.mesh_index];
+    for (uint32_t primitive_index = 0; primitive_index < mesh.primitives.size(); primitive_index++) {
+        const VulkanPrimitive& primitive = mesh.primitives[primitive_index];
+
+        // Bind material
+        if (primitive.material_index != VULKAN_MESH_MATERIAL_NONE) {
+            vkCmdBindDescriptorSets(
                 context->graphics_command_buffers[context->frame_index],
-                primitive.index_count, 1, primitive.first_index, 0, 0);
+                VK_PIPELINE_BIND_POINT_GRAPHICS, context->graphics_pipeline.layout,
+                1, 1, &context->model.material_descriptor_sets[primitive.material_index],
+                0, nullptr);
         }
 
-        break;
+        // Push model matrix
+        vkCmdPushConstants(context->graphics_command_buffers[context->frame_index], context->graphics_pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(RendererPushConstants), &constants);
+
+        vkCmdDrawIndexed(
+            context->graphics_command_buffers[context->frame_index],
+            primitive.index_count, 1, primitive.first_index, 0, 0);
+    }
+
+    // Render each child
+    for (uint32_t child_index = 0; child_index < node.child_indices.size(); child_index++) {
+        vulkan_model_render_node(context, model, model.nodes[node.child_indices[child_index]], constants.model);
     }
 }

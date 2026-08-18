@@ -3,7 +3,6 @@
 #include "core/math.h"
 
 struct RendererUniformBufferObject {
-    mat4 model;
     mat4 view;
     mat4 projection;
     mat4 normal;
@@ -13,4 +12,8 @@ struct RendererUniformBufferObject {
 struct RendererLightData {
     vec4 light_position;
     vec4 light_color;
+};
+
+struct RendererPushConstants {
+    mat4 model;
 };

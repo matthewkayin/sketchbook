@@ -7,7 +7,6 @@ struct VertexInput {
 };
 
 struct UniformBuffer {
-    float4x4 model;
     float4x4 view;
     float4x4 proj;
     float4x4 normal;
@@ -19,12 +18,18 @@ struct LightData {
     float4 light_color;
 };
 
+struct PushConstants {
+    float4x4 model;
+};
+
 [[vk::binding(0, 0)]] StructuredBuffer<LightData> light_data;
 [[vk::binding(1, 0)]] ConstantBuffer<UniformBuffer> ubo;
 [[vk::binding(2, 0)]] Sampler2D hatch_texture0;
 [[vk::binding(3, 0)]] Sampler2D hatch_texture1;
 
 [[vk::binding(0, 1)]] Sampler2D color_texture;
+
+[[vk::push_constant]] PushConstants push_constants;
 
 struct VertexOutput {
     float4 sv_position: SV_Position;
@@ -37,7 +42,7 @@ struct VertexOutput {
 VertexOutput vertex_main(VertexInput input) {
     VertexOutput output;
 
-    output.world_position = mul(ubo.model, float4(input.position, 1.0)).xyz;
+    output.world_position = mul(push_constants.model, float4(input.position, 1.0)).xyz;
     output.normal = mul(float3x3(ubo.normal), input.normal);
     output.sv_position = mul(ubo.proj, mul(ubo.view, float4(output.world_position, 1.0)));
     output.tex_coord = input.tex_coord;
@@ -50,13 +55,13 @@ VertexOutput vertex_main(VertexInput input) {
 [shader("fragment")]
 float4 fragment_main(VertexOutput vertex_output): SV_Target {
     // Object color
-    float3 object_color = color_texture.Sample(vertex_output.tex_coord).rgb;
+    float4 object_color = color_texture.Sample(vertex_output.tex_coord);
 
     // Diffuse
     float3 normal = normalize(vertex_output.normal);
     float3 light_direction = normalize(vertex_output.world_position - light_data[0].light_position.xyz);
     float diffuse_intensity = max(dot(normal, light_direction), 0.0);
-    float3 diffuse = (diffuse_intensity + object_color) / 2.0;
+    float3 diffuse = (float3(diffuse_intensity) + object_color.xyz) / 2.0;
 
     // Intensity
     float intensity = length(diffuse);
@@ -66,8 +71,8 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
     float blend_weight = frac(tone);
 
     // Sample
-    float3 hatch0 = hatch_texture0.Sample(vertex_output.tex_coord).rgb;
-    float3 hatch1 = hatch_texture1.Sample(vertex_output.tex_coord).rgb;
+    float3 hatch0 = hatch_texture0.Sample(vertex_output.tex_coord * 8).rgb;
+    float3 hatch1 = hatch_texture1.Sample(vertex_output.tex_coord * 8).rgb;
 
     float hatch_colors[7];
     hatch_colors[0] = 1.0; // No hatch (just white / paper)
