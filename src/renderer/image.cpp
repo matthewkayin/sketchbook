@@ -406,9 +406,7 @@ bool vulkan_image_generate_mipmaps(VulkanContext* context, VkCommandBuffer comma
             .dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             .regionCount = 1,
             .pRegions = &image_blit,
-            .filter = mipmap_type == VULKAN_IMAGE_MIPMAP_SCALED
-                ? VK_FILTER_LINEAR
-                : VK_FILTER_NEAREST
+            .filter = VK_FILTER_LINEAR
         };
         vkCmdBlitImage2(command_buffer, &blit_info);
 
@@ -476,7 +474,7 @@ bool vulkan_image_generate_mipmaps(VulkanContext* context, VkCommandBuffer comma
     return true;
 }
 
-bool vulkan_image_create_hatch_textures(VulkanContext* context, SDL_Surface* hatch_surfaces[VULKAN_HATCH_TEXTURE_CHANNEL_COUNT], VulkanImage* out_images) {
+bool vulkan_image_create_hatch_textures(VulkanContext* context, SDL_Surface* hatch_surfaces[VULKAN_HATCH_TEXTURE_CHANNEL_COUNT], VulkanImageMipmapType mipmap_type, VulkanImage* out_images) {
     bool success;
 
     SDL_Surface* packed_hatch_surfaces[VULKAN_HATCH_TEXTURE_IMAGE_COUNT];
@@ -518,7 +516,7 @@ bool vulkan_image_create_hatch_textures(VulkanContext* context, SDL_Surface* hat
 
     // Create a Vulkan image for each packed surface
     success = vulkan_image_create_textures(context, {
-        .mipmap_type = VULKAN_IMAGE_MIPMAP_SUBSET,
+        .mipmap_type = mipmap_type,
         .surface_count = VULKAN_HATCH_TEXTURE_IMAGE_COUNT,
         .surfaces = packed_hatch_surfaces
     }, out_images);

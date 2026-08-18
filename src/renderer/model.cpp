@@ -458,8 +458,10 @@ void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, c
         return;
     }
 
+    mat4 model_matrix = node.local_transform * transform;
     RendererPushConstants constants {
-        .model = transform * node.local_transform
+        .model = model_matrix,
+        .normal = model_matrix.inversed().transposed()
     };
 
     // Render each primitive
@@ -472,7 +474,7 @@ void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, c
             vkCmdBindDescriptorSets(
                 context->graphics_command_buffers[context->frame_index],
                 VK_PIPELINE_BIND_POINT_GRAPHICS, context->graphics_pipeline.layout,
-                1, 1, &context->model.material_descriptor_sets[primitive.material_index],
+                1, 1, &model.material_descriptor_sets[primitive.material_index],
                 0, nullptr);
         }
 

@@ -9,8 +9,8 @@ struct VertexInput {
 struct UniformBuffer {
     float4x4 view;
     float4x4 proj;
-    float4x4 normal;
     float4 view_position;
+    float4 mode;
 };
 
 struct LightData {
@@ -20,12 +20,15 @@ struct LightData {
 
 struct PushConstants {
     float4x4 model;
+    float4x4 normal;
 };
 
 [[vk::binding(0, 0)]] StructuredBuffer<LightData> light_data;
 [[vk::binding(1, 0)]] ConstantBuffer<UniformBuffer> ubo;
 [[vk::binding(2, 0)]] Sampler2D hatch_texture0;
 [[vk::binding(3, 0)]] Sampler2D hatch_texture1;
+[[vk::binding(4, 0)]] Sampler2D hatch_texture2;
+[[vk::binding(5, 0)]] Sampler2D hatch_texture3;
 
 [[vk::binding(0, 1)]] Sampler2D color_texture;
 
@@ -43,7 +46,7 @@ VertexOutput vertex_main(VertexInput input) {
     VertexOutput output;
 
     output.world_position = mul(push_constants.model, float4(input.position, 1.0)).xyz;
-    output.normal = mul(float3x3(ubo.normal), input.normal);
+    output.normal = mul(float3x3(push_constants.normal), input.normal);
     output.sv_position = mul(ubo.proj, mul(ubo.view, float4(output.world_position, 1.0)));
     output.tex_coord = input.tex_coord;
 
@@ -59,7 +62,7 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
 
     // Diffuse
     float3 normal = normalize(vertex_output.normal);
-    float3 light_direction = normalize(vertex_output.world_position - light_data[0].light_position.xyz);
+    float3 light_direction = normalize(light_data[0].light_position.xyz - vertex_output.world_position);
     float diffuse_intensity = max(dot(normal, light_direction), 0.0);
     float3 diffuse = (float3(diffuse_intensity) + object_color.xyz) / 2.0;
 
@@ -71,8 +74,16 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
     float blend_weight = frac(tone);
 
     // Sample
-    float3 hatch0 = hatch_texture0.Sample(vertex_output.tex_coord * 8).rgb;
-    float3 hatch1 = hatch_texture1.Sample(vertex_output.tex_coord * 8).rgb;
+    float mode = ubo.mode.x;
+    float3 hatch0;
+    float3 hatch1;
+    if (mode < 4.0) {
+        hatch0 = hatch_texture2.Sample(vertex_output.tex_coord * 16).rgb;
+        hatch1 = hatch_texture3.Sample(vertex_output.tex_coord * 16).rgb;
+    } else {
+        hatch0 = hatch_texture0.Sample(vertex_output.tex_coord * 16).rgb;
+        hatch1 = hatch_texture1.Sample(vertex_output.tex_coord * 16).rgb;
+    }
 
     float hatch_colors[7];
     hatch_colors[0] = 1.0; // No hatch (just white / paper)
@@ -83,6 +94,20 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
     hatch_colors[5] = hatch1.g;
     hatch_colors[6] = hatch1.b;
 
-    float hatch_color = lerp(hatch_colors[level_a], hatch_colors[level_a + 1], blend_weight);
-    return float4(hatch_color, hatch_color, hatch_color, 1.0);
+    // Mode 0 - Solid color
+    if (mode == 0.0) {
+        return float4(0.0, 0.0, 0.0, 1.0);
+    // Mode 1 - Diffuse shading
+    } else if (mode == 1.0) {
+        return float4(diffuse_intensity, diffuse_intensity, diffuse_intensity, 1.0);
+    // Mode 2 - Hatch shading without blend
+    } else if (mode == 2.0) {
+        float hatch_color = hatch_colors[level_a];
+        return float4(hatch_color, hatch_color, hatch_color, 1.0);
+    // Mode 3 - Hatch shading with blend
+    // Mode 4 - Hatch shading with blend and special mips
+    } else {
+        float hatch_color = lerp(hatch_colors[level_a], hatch_colors[level_a + 1], blend_weight);
+        return float4(hatch_color, hatch_color, hatch_color, 1.0);
+    }
 }

@@ -67,7 +67,7 @@ void vulkan_image_view_create(VulkanContext* context, VulkanImageViewCreateParam
 // Textures
 bool vulkan_image_create_textures(VulkanContext* context, VulkanImageCreateTextureParams params, VulkanImage* out_images);
 bool vulkan_image_generate_mipmaps(VulkanContext* context, VkCommandBuffer command_buffer, VulkanImageMipmapType type, VulkanImage* image);
-bool vulkan_image_create_hatch_textures(VulkanContext* context, SDL_Surface* hatch_surfaces[VULKAN_HATCH_TEXTURE_CHANNEL_COUNT], VulkanImage* out_images);
+bool vulkan_image_create_hatch_textures(VulkanContext* context, SDL_Surface* hatch_surfaces[VULKAN_HATCH_TEXTURE_CHANNEL_COUNT], VulkanImageMipmapType mipmap_type, VulkanImage* out_images);
 
 // Layout
 void vulkan_image_transition_layout(VulkanImageTransitionLayoutParams params);

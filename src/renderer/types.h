@@ -132,11 +132,12 @@ struct VulkanContext {
     VulkanBuffer uniform_buffers[VULKAN_MAX_FRAMES_IN_FLIGHT];
     VulkanBuffer light_data_buffer;
     VulkanImage hatch_textures[VULKAN_HATCH_TEXTURE_IMAGE_COUNT];
+    VulkanImage hatch_textures2[VULKAN_HATCH_TEXTURE_IMAGE_COUNT];
     VkSampler texture_sampler;
     VulkanImage fallback_texture;
 
     // Model
-    VulkanModel model;
+    std::vector<VulkanModel> models;
 
     uint32_t frame_index;
     uint32_t image_index;

@@ -27,6 +27,8 @@ struct AppState {
     float camera_distance;
 
     float model_angle;
+    uint32_t mode;
+    uint32_t model;
 };
 static AppState state;
 
@@ -44,6 +46,7 @@ int main() {
     state.camera_yaw = 45.0f * SBK_DEG_TO_RAD;
     state.camera_distance = 10.0f;
     state.model_angle = 0.0f;
+    state.mode = 0;
 
     renderer_set_light_data({
         .light_position = vec4(2.0f, 2.0f, -2.0f, 0.0f),
@@ -71,6 +74,12 @@ int main() {
             state.camera_pitch = std::clamp(state.camera_pitch, -89.0f * SBK_DEG_TO_RAD, 89.0f * SBK_DEG_TO_RAD);
         }
 
+        for (uint32_t mode = 0; mode < 5; mode++) {
+            if (input_is_key_just_pressed((SDL_Scancode)(SDL_SCANCODE_1 + mode))) {
+                state.mode = mode;
+            }
+        }
+
         float model_rotation_direction = 0.0f;
         if (input_is_key_pressed(SDL_SCANCODE_A)) {
             model_rotation_direction = -1.0f;
@@ -80,11 +89,33 @@ int main() {
         }
         state.model_angle += model_rotation_direction * MODEL_ROTATE_SPEED * delta;
 
-        renderer_draw_frame({
-            .model = quat::from_axis_angle(vec3::up(), state.model_angle, true).to_rotation_matrix(vec3(0.0f, 0.0f, 0.0f)),
+        if (input_is_key_just_pressed(SDL_SCANCODE_Q)) {
+            state.model = 0;
+        }
+        if (input_is_key_just_pressed(SDL_SCANCODE_W)) {
+            state.model = 1;
+        }
+        if (input_is_key_just_pressed(SDL_SCANCODE_E)) {
+            state.model = 2;
+        }
+
+        if (!renderer_begin_frame({
             .view = mat4::look_at(camera_position, vec3(0.0f, 0.0f, 0.0f), vec3::up()),
-            .view_position = camera_position
-        });
+            .view_position = camera_position,
+            .mode = state.mode
+        })) {
+            continue;
+        }
+
+        vec3 model_positions[] = {
+            vec3(0.0f, 0.0f, 0.0f)
+        };
+        for (uint32_t index = 0; index < array_length(model_positions); index++) {
+            quat rotation = quat::from_axis_angle(vec3::up(), state.model_angle, true);
+            renderer_draw_model(state.model, rotation.to_rotation_matrix(model_positions[index]) * mat4::translation(model_positions[index]));
+        }
+
+        renderer_end_frame();
     }
 
     app_quit();

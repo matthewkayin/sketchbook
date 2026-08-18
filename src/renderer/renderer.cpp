@@ -34,7 +34,7 @@ void renderer_destroy_uniform_objects();
 void renderer_recreate_swapchain();
 void renderer_create_texture_sampler();
 void renderer_destroy_texture_sampler();
-bool renderer_create_hatch_textures();
+bool renderer_create_hatch_textures(VulkanImageMipmapType mipmap_type, VulkanImage* out_images);
 void renderer_destroy_hatch_textures();
 bool renderer_create_fallback_texture();
 void renderer_destroy_fallback_texture();
@@ -152,6 +152,16 @@ bool renderer_init(SDL_Window* window) {
             .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
             .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
         },
+        {
+            .set = 0, .binding = 4,
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
+        },
+        {
+            .set = 0, .binding = 5,
+            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
+        },
         // Model descriptor set
         {
             .set = 1, .binding = 0,
@@ -197,7 +207,10 @@ bool renderer_init(SDL_Window* window) {
     renderer_create_sync_objects();
 
     // Load hatch textures
-    if (!renderer_create_hatch_textures()) {
+    if (!renderer_create_hatch_textures(VULKAN_IMAGE_MIPMAP_SUBSET, context.hatch_textures)) {
+        return false;
+    }
+    if (!renderer_create_hatch_textures(VULKAN_IMAGE_MIPMAP_SCALED, context.hatch_textures2)) {
         return false;
     }
     if (!renderer_create_fallback_texture()) {
@@ -207,8 +220,16 @@ bool renderer_init(SDL_Window* window) {
     renderer_create_texture_sampler();
     renderer_create_uniform_objects();
 
-    if (!vulkan_model_load(&context, "../res/model/chess.glb", &context.model)) {
-        return false;
+    const char* model_paths[] = {
+        "../res/model/plant.glb",
+        "../res/model/teacup.glb",
+        "../res/model/chess.glb"
+    };
+    context.models = std::vector<VulkanModel>(array_length(model_paths));
+    for (uint32_t index = 0; index < array_length(model_paths); index++) {
+        if (!vulkan_model_load(&context, model_paths[index], &context.models[index])) {
+            return false;
+        }
     }
 
     context.frame_index = 0;
@@ -220,7 +241,10 @@ bool renderer_init(SDL_Window* window) {
 void renderer_quit() {
     vkDeviceWaitIdle(context.device.logical_device);
 
-    vulkan_model_destroy(&context, &context.model);
+    for (uint32_t index = 0; index < context.models.size(); index++) {
+        vulkan_model_destroy(&context, &context.models[index]);
+    }
+
     renderer_destroy_uniform_objects();
     renderer_destroy_texture_sampler();
     renderer_destroy_fallback_texture();
@@ -256,14 +280,14 @@ void renderer_on_resized() {
     renderer_recreate_swapchain();
 }
 
-void renderer_draw_frame(RenderPacket packet) {
+bool renderer_begin_frame(RenderPacket packet) {
     // Wait for current frame fence
     VkResult fence_result = vkWaitForFences(
         context.device.logical_device,
         1, &context.frame_fences[context.frame_index], VK_TRUE, UINT64_MAX);
     if (fence_result != VK_SUCCESS) {
         log_error("Error waiting for fence: %s.", vulkan_result_str(fence_result));
-        return;
+        return false;
     }
 
     // Acquire next image
@@ -277,10 +301,10 @@ void renderer_draw_frame(RenderPacket packet) {
     if (acquire_result == VK_ERROR_OUT_OF_DATE_KHR) {
         log_info("vkAcquireNextImageKHR - Swapchain is out of date. Recreating swapchain...");
         renderer_recreate_swapchain();
-        return;
+        return false;
     } else if (acquire_result != VK_SUCCESS) {
         log_error("Error acquiring next image: %s.", vulkan_result_str(acquire_result));
-        return;
+        return false;
     }
 
     // Reset current frame fence (only done after we have successfully acquired image to avoid deadlock)
@@ -352,7 +376,7 @@ void renderer_draw_frame(RenderPacket packet) {
         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
         .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
         .clearValue = {
-            .color = { .float32 = { 0.0f, 0.0f, 0.0f, 1.0f }}
+            .color = { .float32 = { 0.9f, 0.9f, 0.9f, 1.0f }}
         }
     };
     VkRenderingAttachmentInfo depth_attachment {
@@ -427,8 +451,8 @@ void renderer_draw_frame(RenderPacket packet) {
             45.0f * SBK_DEG_TO_RAD,
             (float)context.swapchain.extent.width / (float)context.swapchain.extent.height,
             0.1f, 1000.0f),
-        .normal = packet.model.inversed().transposed(),
-        .view_position = vec4(packet.view_position, 0.0f)
+        .view_position = vec4(packet.view_position, 0.0f),
+        .mode = vec4((float)packet.mode, 0.0f, 0.0f, 0.0f)
     };
 
     // This accounts for the fact that our math library is GL-style (Y coordinate inverted)
@@ -441,10 +465,10 @@ void renderer_draw_frame(RenderPacket packet) {
         .data = &ubo
     });
 
-    vulkan_model_render(&context, context.model, mat4::identity());
+    return true;
+}
 
-    // END FRAME
-
+void renderer_end_frame() {
     vkCmdEndRendering(context.graphics_command_buffers[context.frame_index]);
 
     // Transition the swapchain image to PRESENT
@@ -512,6 +536,10 @@ void renderer_set_light_data(const RendererLightData& data) {
         .size = sizeof(data),
         .data = &data
     });
+}
+
+void renderer_draw_model(uint32_t index, mat4 transform) {
+    vulkan_model_render(&context, context.models[index], transform);
 }
 
 // DEBUG
@@ -835,6 +863,30 @@ void renderer_create_uniform_objects() {
         }
     }
 
+    // Hatch texture 2 combined image sampler descriptors
+    VkDescriptorImageInfo image_infos2[VULKAN_MAX_FRAMES_IN_FLIGHT];
+    for (uint32_t image_index = 0; image_index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; image_index++) {
+        image_infos2[image_index] = {
+            .sampler = context.texture_sampler,
+            .imageView = context.hatch_textures2[image_index].view,
+            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+        };
+        for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
+            descriptor_writes.push_back({
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .pNext = nullptr,
+                .dstSet = context.global_descriptor_sets[index],
+                .dstBinding = 4 + image_index,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                .pImageInfo = &image_infos2[image_index],
+                .pBufferInfo = nullptr,
+                .pTexelBufferView = nullptr
+            });
+        }
+    }
+
     vkUpdateDescriptorSets(
         context.device.logical_device,
         descriptor_writes.size(), descriptor_writes.data(),
@@ -893,7 +945,7 @@ void renderer_destroy_texture_sampler() {
     vkDestroySampler(context.device.logical_device, context.texture_sampler, context.allocator);
 }
 
-bool renderer_create_hatch_textures() {
+bool renderer_create_hatch_textures(VulkanImageMipmapType mipmap_type, VulkanImage* out_images) {
     bool success;
 
     const char* hatch_texture_paths[VULKAN_HATCH_TEXTURE_CHANNEL_COUNT] = {
@@ -927,7 +979,7 @@ bool renderer_create_hatch_textures() {
         }
     }
 
-    success = vulkan_image_create_hatch_textures(&context, hatch_surfaces, context.hatch_textures);
+    success = vulkan_image_create_hatch_textures(&context, hatch_surfaces, mipmap_type, out_images);
 
 end:
     for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_CHANNEL_COUNT; index++) {
@@ -942,6 +994,9 @@ end:
 void renderer_destroy_hatch_textures() {
     for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; index++) {
         vulkan_image_destroy(&context, &context.hatch_textures[index]);
+    }
+    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; index++) {
+        vulkan_image_destroy(&context, &context.hatch_textures2[index]);
     }
 }
 

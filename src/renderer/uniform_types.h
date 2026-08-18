@@ -5,8 +5,8 @@
 struct RendererUniformBufferObject {
     mat4 view;
     mat4 projection;
-    mat4 normal;
     vec4 view_position;
+    vec4 mode;
 };
 
 struct RendererLightData {
@@ -16,4 +16,5 @@ struct RendererLightData {
 
 struct RendererPushConstants {
     mat4 model;
+    mat4 normal;
 };
