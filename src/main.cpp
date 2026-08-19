@@ -50,7 +50,7 @@ int main() {
 
     renderer_set_light_data({
         .light_position = vec4(2.0f, 2.0f, -2.0f, 0.0f),
-        .light_color = vec4(1.0f, 1.0f, 1.0f, 1.0f)
+        .light_color = vec4(0.5f, 0.5, 0.5f, 1.0f)
     });
 
     while (app_is_running()) {
