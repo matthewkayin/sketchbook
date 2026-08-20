@@ -96,7 +96,8 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
 
     // Mode 0 - Solid color
     if (mode == 0.0) {
-        return float4(0.0, 0.0, 0.0, 1.0);
+        // return float4(0.0, 0.0, 0.0, 1.0);
+        return float4(1.0);
     // Mode 1 - Diffuse shading
     } else if (mode == 1.0) {
         return float4(diffuse_intensity, diffuse_intensity, diffuse_intensity, 1.0);

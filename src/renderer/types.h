@@ -104,6 +104,11 @@ struct VulkanModel {
     std::vector<VulkanImage> textures;
 };
 
+struct VulkanModelRenderParams {
+    uint32_t model_index;
+    mat4 transform;
+};
+
 struct VulkanContext {
     SDL_Window* window;
 
@@ -114,7 +119,10 @@ struct VulkanContext {
     VkSurfaceKHR surface;
     VulkanDevice device;
     VulkanSwapchain swapchain;
+
     VulkanPipeline graphics_pipeline;
+    VulkanPipeline outline_pipeline;
+    VulkanPipeline* bound_pipeline;
 
     // Sync
     VkSemaphore acquire_semaphores[VULKAN_MAX_FRAMES_IN_FLIGHT];
@@ -137,7 +145,8 @@ struct VulkanContext {
     VulkanImage fallback_texture;
 
     // Model
-    std::vector<VulkanModel> models;
+    std::vector<VulkanModel> model_data;
+    std::vector<VulkanModelRenderParams> model_render_queue;
 
     uint32_t frame_index;
     uint32_t image_index;

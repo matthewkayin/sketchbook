@@ -185,9 +185,26 @@ bool renderer_init(SDL_Window* window) {
         .descriptor_count = array_length(graphics_pipeline_descriptors),
         .descriptors = graphics_pipeline_descriptors,
         .push_constant_count = array_length(graphics_push_constants),
-        .push_constants = graphics_push_constants
+        .push_constants = graphics_push_constants,
+        .cull_mode = VK_CULL_MODE_BACK_BIT
     };
     if (!vulkan_pipeline_create(&context, graphics_pipeline_create_params, &context.graphics_pipeline)) {
+        return false;
+    }
+
+    // Create outline pipeline
+    VulkanPipelineCreateParams outline_pipeline_create_params {
+        .shader_path = "shader/outline.spv",
+        .vertex_input_stride = sizeof(Vertex3d),
+        .attribute_count = array_length(graphics_pipeline_attributes),
+        .attributes = graphics_pipeline_attributes,
+        .descriptor_count = array_length(graphics_pipeline_descriptors),
+        .descriptors = graphics_pipeline_descriptors,
+        .push_constant_count = array_length(graphics_push_constants),
+        .push_constants = graphics_push_constants,
+        .cull_mode = VK_CULL_MODE_FRONT_BIT
+    };
+    if (!vulkan_pipeline_create(&context, outline_pipeline_create_params, &context.outline_pipeline)) {
         return false;
     }
 
@@ -220,18 +237,6 @@ bool renderer_init(SDL_Window* window) {
     renderer_create_texture_sampler();
     renderer_create_uniform_objects();
 
-    const char* model_paths[] = {
-        "../res/model/plant.glb",
-        "../res/model/teacup.glb",
-        "../res/model/chess.glb"
-    };
-    context.models = std::vector<VulkanModel>(array_length(model_paths));
-    for (uint32_t index = 0; index < array_length(model_paths); index++) {
-        if (!vulkan_model_load(&context, model_paths[index], &context.models[index])) {
-            return false;
-        }
-    }
-
     context.frame_index = 0;
 
     log_info("Renderer initialized.");
@@ -241,8 +246,8 @@ bool renderer_init(SDL_Window* window) {
 void renderer_quit() {
     vkDeviceWaitIdle(context.device.logical_device);
 
-    for (uint32_t index = 0; index < context.models.size(); index++) {
-        vulkan_model_destroy(&context, &context.models[index]);
+    for (uint32_t index = 0; index < context.model_data.size(); index++) {
+        vulkan_model_destroy(&context, &context.model_data[index]);
     }
 
     renderer_destroy_uniform_objects();
@@ -256,6 +261,7 @@ void renderer_quit() {
         array_length(context.graphics_command_buffers),
         context.graphics_command_buffers);
     vulkan_pipeline_destroy(&context, &context.graphics_pipeline);
+    vulkan_pipeline_destroy(&context, &context.outline_pipeline);
     vulkan_swapchain_destroy(&context);
     vulkan_device_destroy(&context);
 
@@ -280,14 +286,14 @@ void renderer_on_resized() {
     renderer_recreate_swapchain();
 }
 
-bool renderer_begin_frame(RenderPacket packet) {
+void renderer_draw_frame(RenderPacket packet) {
     // Wait for current frame fence
     VkResult fence_result = vkWaitForFences(
         context.device.logical_device,
         1, &context.frame_fences[context.frame_index], VK_TRUE, UINT64_MAX);
     if (fence_result != VK_SUCCESS) {
         log_error("Error waiting for fence: %s.", vulkan_result_str(fence_result));
-        return false;
+        return;
     }
 
     // Acquire next image
@@ -301,10 +307,10 @@ bool renderer_begin_frame(RenderPacket packet) {
     if (acquire_result == VK_ERROR_OUT_OF_DATE_KHR) {
         log_info("vkAcquireNextImageKHR - Swapchain is out of date. Recreating swapchain...");
         renderer_recreate_swapchain();
-        return false;
+        return;
     } else if (acquire_result != VK_SUCCESS) {
         log_error("Error acquiring next image: %s.", vulkan_result_str(acquire_result));
-        return false;
+        return;
     }
 
     // Reset current frame fence (only done after we have successfully acquired image to avoid deadlock)
@@ -429,11 +435,12 @@ bool renderer_begin_frame(RenderPacket packet) {
         .extent = context.swapchain.extent
     };
 
-    // GRAPHICS PIPELINE
+    // RENDER PASS 1 - GRAPHICS PIPELINE
     vkCmdBindPipeline(
         context.graphics_command_buffers[context.frame_index],
         VK_PIPELINE_BIND_POINT_GRAPHICS,
         context.graphics_pipeline.handle);
+    context.bound_pipeline = &context.graphics_pipeline;
     vkCmdSetViewport(context.graphics_command_buffers[context.frame_index], 0, 1, &viewport);
     vkCmdSetScissor(context.graphics_command_buffers[context.frame_index], 0, 1, &scissor);
 
@@ -443,7 +450,7 @@ bool renderer_begin_frame(RenderPacket packet) {
         VK_PIPELINE_BIND_POINT_GRAPHICS, context.graphics_pipeline.layout,
         0, 1, &context.global_descriptor_sets[context.frame_index], 0, nullptr);
 
-    // DRAW MODEL
+    // SET UBO
 
     RendererUniformBufferObject ubo {
         .view = packet.view,
@@ -465,10 +472,22 @@ bool renderer_begin_frame(RenderPacket packet) {
         .data = &ubo
     });
 
-    return true;
-}
+    // RENDER MODEL
+    vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform);
 
-void renderer_end_frame() {
+    // RENDER PASS 2 - OUTLINE
+    if (packet.show_outline) {
+        vkCmdBindPipeline(
+            context.graphics_command_buffers[context.frame_index],
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            context.outline_pipeline.handle);
+        context.bound_pipeline = &context.outline_pipeline;
+
+        vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform);
+    }
+
+    // END FRAME
+
     vkCmdEndRendering(context.graphics_command_buffers[context.frame_index]);
 
     // Transition the swapchain image to PRESENT
@@ -538,8 +557,21 @@ void renderer_set_light_data(const RendererLightData& data) {
     });
 }
 
+bool renderer_load_model(const char* path, uint32_t* out_model_index) {
+    VulkanModel model;
+    if (!vulkan_model_load(&context, path, &model)) {
+        return false;
+    }
+    context.model_data.push_back(model);
+    *out_model_index = (uint32_t)context.model_data.size() - 1U;
+    return true;
+}
+
 void renderer_draw_model(uint32_t index, mat4 transform) {
-    vulkan_model_render(&context, context.models[index], transform);
+    context.model_render_queue.push_back({
+        .model_index = index,
+        .transform = transform
+    });
 }
 
 // DEBUG

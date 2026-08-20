@@ -473,13 +473,13 @@ void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, c
         if (primitive.material_index != VULKAN_MESH_MATERIAL_NONE) {
             vkCmdBindDescriptorSets(
                 context->graphics_command_buffers[context->frame_index],
-                VK_PIPELINE_BIND_POINT_GRAPHICS, context->graphics_pipeline.layout,
+                VK_PIPELINE_BIND_POINT_GRAPHICS, context->bound_pipeline->layout,
                 1, 1, &model.material_descriptor_sets[primitive.material_index],
                 0, nullptr);
         }
 
         // Push model matrix
-        vkCmdPushConstants(context->graphics_command_buffers[context->frame_index], context->graphics_pipeline.layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(RendererPushConstants), &constants);
+        vkCmdPushConstants(context->graphics_command_buffers[context->frame_index], context->bound_pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(RendererPushConstants), &constants);
 
         vkCmdDrawIndexed(
             context->graphics_command_buffers[context->frame_index],

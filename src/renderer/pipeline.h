@@ -18,6 +18,7 @@ struct VulkanPipelineCreateParams {
     VulkanPipelineDescriptor* descriptors;
     uint32_t push_constant_count;
     VkPushConstantRange* push_constants;
+    VkCullModeFlags cull_mode;
 };
 
 bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out_pipeline);

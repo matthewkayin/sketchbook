@@ -8,6 +8,11 @@ struct RenderPacket {
     mat4 view;
     vec3 view_position;
     uint32_t mode;
+
+    // TODO: allow multiple model renders
+    uint32_t model_index;
+    mat4 model_transform;
+    bool show_outline;
 };
 
 bool renderer_init(SDL_Window* window);
@@ -16,7 +21,5 @@ void renderer_on_resized();
 
 void renderer_set_light_data(const RendererLightData& data);
 
-bool renderer_begin_frame(RenderPacket packet);
-void renderer_end_frame();
-
-void renderer_draw_model(uint32_t index, mat4 transform);
+void renderer_draw_frame(RenderPacket packet);
+bool renderer_load_model(const char* path, uint32_t* out_model_index);

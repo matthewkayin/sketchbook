@@ -6,6 +6,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 #include <algorithm>
+#include <vector>
 
 static const float CAMERA_SCROLL_SPEED = 100.0f;
 static const float CAMERA_YAW_SPEED = -75.0f * SBK_DEG_TO_RAD;
@@ -28,7 +29,11 @@ struct AppState {
 
     float model_angle;
     uint32_t mode;
-    uint32_t model;
+
+    uint32_t current_model;
+    std::vector<uint32_t> models;
+
+    bool show_outline;
 };
 static AppState state;
 
@@ -47,6 +52,7 @@ int main() {
     state.camera_distance = 10.0f;
     state.model_angle = 0.0f;
     state.mode = 0;
+    state.show_outline = true;
 
     renderer_set_light_data({
         .light_position = vec4(2.0f, 2.0f, -2.0f, 0.0f),
@@ -89,33 +95,32 @@ int main() {
         }
         state.model_angle += model_rotation_direction * MODEL_ROTATE_SPEED * delta;
 
-        if (input_is_key_just_pressed(SDL_SCANCODE_Q)) {
-            state.model = 0;
+        if (input_is_key_just_pressed(SDL_SCANCODE_LEFT)) {
+            if (state.current_model > 0) {
+                state.current_model--;
+            }
         }
-        if (input_is_key_just_pressed(SDL_SCANCODE_W)) {
-            state.model = 1;
-        }
-        if (input_is_key_just_pressed(SDL_SCANCODE_E)) {
-            state.model = 2;
+        if (input_is_key_just_pressed(SDL_SCANCODE_RIGHT)) {
+            if (state.current_model < state.models.size() - 1) {
+                state.current_model++;
+            }
         }
 
-        if (!renderer_begin_frame({
+        if (input_is_key_pressed(SDL_SCANCODE_O)) {
+            state.show_outline = !state.show_outline;
+        }
+
+        vec3 model_position = vec3(0.0f, 0.0f, 0.0f);
+        quat model_rotation = quat::from_axis_angle(vec3::up(), state.model_angle, true);
+
+        renderer_draw_frame({
             .view = mat4::look_at(camera_position, vec3(0.0f, 0.0f, 0.0f), vec3::up()),
             .view_position = camera_position,
-            .mode = state.mode
-        })) {
-            continue;
-        }
-
-        vec3 model_positions[] = {
-            vec3(0.0f, 0.0f, 0.0f)
-        };
-        for (uint32_t index = 0; index < array_length(model_positions); index++) {
-            quat rotation = quat::from_axis_angle(vec3::up(), state.model_angle, true);
-            renderer_draw_model(state.model, rotation.to_rotation_matrix(model_positions[index]) * mat4::translation(model_positions[index]));
-        }
-
-        renderer_end_frame();
+            .mode = state.mode,
+            .model_index = state.current_model,
+            .model_transform = mat4::scale(vec3(4.0f, 4.0f, 4.0f)) * model_rotation.to_rotation_matrix(model_position),
+            .show_outline = state.show_outline
+        });
     }
 
     app_quit();
@@ -153,6 +158,18 @@ bool app_init() {
     // Init renderer
     if (!renderer_init(state.window)) {
         return false;
+    }
+
+    const char* model_paths[] = {
+        "../res/model/plant.glb",
+        "../res/model/teacup.glb"
+    };
+    for (uint32_t index = 0; index < array_length(model_paths); index++) {
+        uint32_t model_index;
+        if (!renderer_load_model(model_paths[index], &model_index)) {
+            return false;
+        }
+        state.models.push_back(model_index);
     }
 
     log_info("%s initialized.", SBK_APP_NAME);
