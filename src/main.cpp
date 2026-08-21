@@ -28,7 +28,6 @@ struct AppState {
     float camera_distance;
 
     float model_angle;
-    uint32_t mode;
 
     uint32_t current_model;
     std::vector<uint32_t> models;
@@ -51,7 +50,6 @@ int main() {
     state.camera_yaw = 45.0f * SBK_DEG_TO_RAD;
     state.camera_distance = 10.0f;
     state.model_angle = 0.0f;
-    state.mode = 0;
     state.show_outline = true;
 
     renderer_set_light_data({
@@ -78,12 +76,6 @@ int main() {
             state.camera_yaw += mouse_motion.x * CAMERA_YAW_SPEED * delta;
             state.camera_pitch += mouse_motion.y * CAMERA_PITCH_SPEED * delta;
             state.camera_pitch = std::clamp(state.camera_pitch, -89.0f * SBK_DEG_TO_RAD, 89.0f * SBK_DEG_TO_RAD);
-        }
-
-        for (uint32_t mode = 0; mode < 5; mode++) {
-            if (input_is_key_just_pressed((SDL_Scancode)(SDL_SCANCODE_1 + mode))) {
-                state.mode = mode;
-            }
         }
 
         float model_rotation_direction = 0.0f;
@@ -116,7 +108,6 @@ int main() {
         renderer_draw_frame({
             .view = mat4::look_at(camera_position, vec3(0.0f, 0.0f, 0.0f), vec3::up()),
             .view_position = camera_position,
-            .mode = state.mode,
             .model_index = state.current_model,
             .model_transform = mat4::scale(vec3(4.0f, 4.0f, 4.0f)) * model_rotation.to_rotation_matrix(model_position),
             .show_outline = state.show_outline

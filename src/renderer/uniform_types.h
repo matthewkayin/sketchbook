@@ -6,7 +6,6 @@ struct RendererUniformBufferObject {
     mat4 view;
     mat4 projection;
     vec4 view_position;
-    vec4 mode;
 };
 
 struct RendererLightData {

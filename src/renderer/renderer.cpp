@@ -458,8 +458,7 @@ void renderer_draw_frame(RenderPacket packet) {
             45.0f * SBK_DEG_TO_RAD,
             (float)context.swapchain.extent.width / (float)context.swapchain.extent.height,
             0.1f, 1000.0f),
-        .view_position = vec4(packet.view_position, 0.0f),
-        .mode = vec4((float)packet.mode, 0.0f, 0.0f, 0.0f)
+        .view_position = vec4(packet.view_position, 0.0f)
     };
 
     // This accounts for the fact that our math library is GL-style (Y coordinate inverted)
