@@ -47,8 +47,6 @@ VertexOutput vertex_main(VertexInput input) {
     return output;
 }
 
-// Sampler2D texture;
-
 [shader("fragment")]
 float4 fragment_main(VertexOutput vertex_output): SV_Target {
     // Ambient

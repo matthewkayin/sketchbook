@@ -265,8 +265,8 @@ void renderer_draw_frame(RenderPacket packet) {
         .view = packet.view,
         .projection = mat4::perspective(45.0f * SBK_DEG_TO_RAD, (float)context.swapchain.extent.width / (float)context.swapchain.extent.height, 0.1f, 1000.0f),
         .depth_view_projection =
-            mat4::ortho(-10.0f, 10.0f, 10.0f, -10.0f, 1.0f, 7.5f) *
-            mat4::look_at(packet.light_position, vec3(0.0f, 0.0f, 0.0f), vec3::up()),
+            mat4::look_at(packet.light_position, vec3(0.0f, 0.0f, 0.0f), vec3::up()) *
+            mat4::ortho(-10.0f, 10.0f, 10.0f, -10.0f, 1.0f, 7.5f),
         .view_position = vec4(packet.view_position, 0.0f),
         .light_position = vec4(packet.light_position, 0.0f)
     };

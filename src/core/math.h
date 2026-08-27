@@ -402,12 +402,12 @@ struct mat4 {
         mat4 result = mat4::identity();
 
         result.data[0] = 2.0f / (right - left);
-        result.data[5] = - 2.0f / (top - bottom);
-        result.data[10] = - 2.0f / (far - near);
+        result.data[5] = -2.0f / (top - bottom);
+        result.data[10] = -2.0f / (far - near);
 
         result.data[3] = - (right + left) / (right - left);
         result.data[7] = - (top + bottom) / (top - bottom);
-        result.data[11] = - (far + near) / (far - near);
+        result.data[11] = - (far + near)  / (far - near);
 
         return result;
     }
@@ -436,14 +436,17 @@ struct mat4 {
         result.data[1] = y_axis.x;
         result.data[2] = -z_axis.x;
         result.data[3] = 0.0f;
+
         result.data[4] = x_axis.y;
         result.data[5] = y_axis.y;
         result.data[6] = -z_axis.y;
         result.data[7] = 0.0f;
+
         result.data[8] = x_axis.z;
         result.data[9] = y_axis.z;
         result.data[10] = -z_axis.z;
         result.data[11] = 0.0f;
+
         result.data[12] = -vec3::dot(x_axis, position);
         result.data[13] = -vec3::dot(y_axis, position);
         result.data[14] = vec3::dot(z_axis, position);
