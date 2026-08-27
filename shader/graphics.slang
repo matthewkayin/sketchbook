@@ -50,17 +50,19 @@ VertexOutput vertex_main(VertexInput input) {
 
 [shader("fragment")]
 float4 fragment_main(VertexOutput vertex_output): SV_Target {
-    // Object color
-    float4 object_color = color_texture.Sample(vertex_output.tex_coord);
+    // Ambient
     float3 light_color = float3(0.5);
+    float3 ambient = 0.3 * light_color;
 
     // Diffuse
     float3 normal = normalize(vertex_output.normal);
     float3 light_direction = normalize(ubo.light_position.xyz - vertex_output.world_position);
     float diffuse_intensity = max(dot(normal, light_direction), 0.0);
-    float3 diffuse = ((float3(diffuse_intensity) * light_color) + object_color.xyz) / 2.0;
+    float3 diffuse = float3(diffuse_intensity) * light_color;
 
     // Intensity
+    float3 object_color = color_texture.Sample(vertex_output.tex_coord).xyz;
+    float3 lit_object_color = (ambient + diffuse) * object_color;
     float intensity = length(diffuse);
     float tone = (1.0 - intensity) * 6.0;
 
@@ -81,6 +83,7 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
     hatch_colors[6] = hatch1.b;
 
     // Hatch shading with blend
-    float hatch_color = lerp(hatch_colors[level_a], hatch_colors[level_a + 1], blend_weight);
-    return float4(hatch_color, hatch_color, hatch_color, 1.0);
+    // float hatch_color = lerp(hatch_colors[level_a], hatch_colors[level_a + 1], blend_weight);
+    // return float4(hatch_color, hatch_color, hatch_color, 1.0);
+    return float4(float3(intensity), 1.0);
 }

@@ -453,6 +453,102 @@ void vulkan_model_render(VulkanContext* context, const VulkanModel& model, mat4 
     }
 }
 
+bool vulkan_model_create_geometry(VulkanContext* context, VulkanModelCreateGeometryParams params, VulkanModel* out_model) {
+    // Load material
+    out_model->material_descriptor_sets = std::vector<VkDescriptorSet>(1);
+    std::vector<VkDescriptorSetLayout> set_layouts(1, context->model_descriptor_set_layout);
+    VkDescriptorSetAllocateInfo descriptor_set_allocate_info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+        .pNext = nullptr,
+        .descriptorPool = context->descriptor_pool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = set_layouts.data()
+    };
+    VK_CHECK(vkAllocateDescriptorSets(
+        context->device.logical_device,
+        &descriptor_set_allocate_info,
+        out_model->material_descriptor_sets.data()
+    ));
+
+    VkDescriptorImageInfo image_info {
+        .sampler = context->texture_sampler,
+        .imageView = context->fallback_texture.view,
+        .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    };
+    VkWriteDescriptorSet descriptor_write {
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .pNext = nullptr,
+        .dstSet = out_model->material_descriptor_sets[0],
+        .dstBinding = 0,
+        .dstArrayElement = 0,
+        .descriptorCount = 1,
+        .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+        .pImageInfo = &image_info,
+        .pBufferInfo = nullptr,
+        .pTexelBufferView = nullptr
+    };
+    vkUpdateDescriptorSets(
+        context->device.logical_device,
+        1, &descriptor_write,
+        0, nullptr);
+
+    // Creat mesh
+    VulkanMesh mesh;
+    mesh.primitives.push_back({
+        .first_index = 0,
+        .index_count = params.index_count,
+        .material_index = 0
+    });
+    out_model->meshes.push_back(mesh);
+
+    // Create vertex buffer
+    bool success = vulkan_buffer_create(context, {
+        .size = params.vertex_count * sizeof(Vertex3d),
+        .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .bind_on_create = true
+    }, &out_model->vertex_buffer);
+    if (!success) {
+        return false;
+    }
+
+    // Upload vertices to vertex buffer
+    vulkan_buffer_upload_data(context, &out_model->vertex_buffer, {
+        .offset = 0,
+        .size = params.vertex_count * sizeof(Vertex3d),
+        .data = params.vertices
+    });
+
+    // Create index buffer
+    success = vulkan_buffer_create(context, {
+        .size = params.index_count * sizeof(uint32_t),
+        .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        .bind_on_create = true
+    }, &out_model->index_buffer);
+    if (!success) {
+        return false;
+    }
+
+    // Upload indices to index buffer
+    vulkan_buffer_upload_data(context, &out_model->index_buffer, {
+        .offset = 0,
+        .size = params.index_count * sizeof(uint32_t),
+        .data = params.indices
+    });
+
+    // Create node
+    out_model->nodes.push_back({
+        .local_transform = mat4::identity(),
+        .mesh_index = 0,
+        .parent_index = VULKAN_NODE_PARENT_NONE,
+        .child_indices = {}
+    });
+
+    return true;
+}
+
+
 void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, const VulkanNode& node, mat4 transform, bool use_material) {
     if (node.mesh_index == VULKAN_NODE_MESH_NONE) {
         return;

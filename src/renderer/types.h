@@ -147,7 +147,7 @@ struct VulkanContext {
 
     // Model
     std::vector<VulkanModel> model_data;
-    std::vector<VulkanModelRenderParams> model_render_queue;
+    VulkanModel model_floor;
 
     uint32_t frame_index;
     uint32_t image_index;

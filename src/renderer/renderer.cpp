@@ -133,6 +133,29 @@ bool renderer_init(SDL_Window* window) {
 
     renderer_create_sync_objects();
 
+    // Create floor
+    Vertex3d floor_vertices[] = {
+        { .position = vec3(25.0f, 0.0f, 25.0f), .normal = vec3::up(), .tex_coord = vec2(1.0f, 0.0f) },
+        { .position = vec3(-25.0f, 0.0f, 25.0f), .normal = vec3::up(), .tex_coord = vec2(0.0f, 0.0f) },
+        { .position = vec3(-25.0f, 0.0f, -25.0f), .normal = vec3::up(), .tex_coord = vec2(0.0f, 1.0f) },
+
+        { .position = vec3(25.0f, 0.0f, 25.0f), .normal = vec3::up(), .tex_coord = vec2(1.0f, 0.0f) },
+        { .position = vec3(-25.0f, 0.0f, -25.0f), .normal = vec3::up(), .tex_coord = vec2(0.0f, 1.0f) },
+        { .position = vec3(25.0f, 0.0f, -25.0f), .normal = vec3::up(), .tex_coord = vec2(1.0f, 1.0f) },
+    };
+    uint32_t floor_indices[] = {
+        0, 2, 1,
+        3, 5, 4,
+    };
+    if (!vulkan_model_create_geometry(&context, {
+        .vertex_count = array_length(floor_vertices),
+        .vertices = floor_vertices,
+        .index_count = array_length(floor_indices),
+        .indices = floor_indices
+    }, &context.model_floor)) {
+        return false;
+    }
+
     context.frame_index = 0;
 
     log_info("Renderer initialized.");
@@ -145,6 +168,7 @@ void renderer_quit() {
     for (uint32_t index = 0; index < context.model_data.size(); index++) {
         vulkan_model_destroy(&context, &context.model_data[index]);
     }
+    vulkan_model_destroy(&context, &context.model_floor);
 
     vulkan_descriptor_sets_destroy(&context);
     vulkan_uniform_objects_destroy(&context);
@@ -178,6 +202,11 @@ void renderer_quit() {
 
 void renderer_on_resized() {
     renderer_recreate_swapchain();
+}
+
+void renderer_draw_scene(const RenderPacket& packet, bool use_material) {
+    vulkan_model_render(&context, context.model_floor, mat4::identity(), use_material);
+    vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform, false);
 }
 
 void renderer_draw_frame(RenderPacket packet) {
@@ -366,13 +395,12 @@ void renderer_draw_frame(RenderPacket packet) {
             1, 1, &context.graphics_descriptor_sets[context.frame_index],
             0, nullptr);
 
-        vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform, true);
+        renderer_draw_scene(packet, true);
 
         // RENDER PASS 2 - OUTLINE
         if (packet.show_outline) {
             vulkan_pipeline_bind(&context, &context.outline_pipeline);
-
-            vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform, false);
+            renderer_draw_scene(packet, false);
         }
 
         vkCmdEndRendering(context.graphics_command_buffers[context.frame_index]);
@@ -449,13 +477,6 @@ bool renderer_load_model(const char* path, uint32_t* out_model_index) {
     context.model_data.push_back(model);
     *out_model_index = (uint32_t)context.model_data.size() - 1U;
     return true;
-}
-
-void renderer_draw_model(uint32_t index, mat4 transform) {
-    context.model_render_queue.push_back({
-        .model_index = index,
-        .transform = transform
-    });
 }
 
 // DEBUG
