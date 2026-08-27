@@ -401,17 +401,13 @@ struct mat4 {
     static mat4 ortho(float left, float right, float top, float bottom, float near, float far) {
         mat4 result = mat4::identity();
 
-        float lr = 1.0f / (left - right);
-        float bt = 1.0f / (bottom - top);
-        float nf = 1.0f / (near - far);
+        result.data[0] = 2.0f / (right - left);
+        result.data[5] = - 2.0f / (top - bottom);
+        result.data[10] = - 2.0f / (far - near);
 
-        result.data[0] = -2.0f * lr;
-        result.data[5] = -2.0f * bt;
-        result.data[10] = 2.0f * nf;
-
-        result.data[12] = (left + right) * lr;
-        result.data[13] = (top + bottom) * bt;
-        result.data[14] = (far + near) * nf;
+        result.data[3] = - (right + left) / (right - left);
+        result.data[7] = - (top + bottom) / (top - bottom);
+        result.data[11] = - (far + near) / (far - near);
 
         return result;
     }
@@ -421,7 +417,7 @@ struct mat4 {
 
         mat4 result;
         result.data[0] = 1.0f / (aspect_ratio * half_tan_fov);
-        result.data[5] = 1.0f / half_tan_fov;
+        result.data[5] = -1.0f / half_tan_fov; // -1.0 flips the Y axis
         result.data[10] = -((far + near) / (far - near));
         result.data[11] = -1.0f;
         result.data[14] = -((2.0f * far * near) / (far - near));

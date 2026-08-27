@@ -230,17 +230,10 @@ void renderer_draw_frame(RenderPacket packet) {
 
     RendererUniformBufferObject ubo {
         .view = packet.view,
-        .projection = mat4::perspective(
-            45.0f * SBK_DEG_TO_RAD,
-            (float)context.swapchain.extent.width / (float)context.swapchain.extent.height,
-            0.1f, 1000.0f),
+        .projection = mat4::perspective(45.0f * SBK_DEG_TO_RAD, (float)context.swapchain.extent.width / (float)context.swapchain.extent.height, 0.1f, 1000.0f),
         .view_position = vec4(packet.view_position, 0.0f),
         .light_position = vec4(packet.light_position, 0.0f)
     };
-
-    // This accounts for the fact that our math library is GL-style (Y coordinate inverted)
-    // should probably change the math library or the coordinate system creation
-    ubo.projection.data[5] *= -1;
 
     vulkan_buffer_load_data(&context, &context.uniform_buffers[context.frame_index], {
         .offset = 0,
