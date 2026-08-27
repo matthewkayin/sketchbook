@@ -267,6 +267,24 @@ bool vulkan_uniform_objects_create(VulkanContext* context) {
         return false;
     }
 
+    // Create shadow maps
+    for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
+        bool success = vulkan_image_create(context, {
+            .width = VULKAN_SHADOW_MAP_WIDTH,
+            .height = VULKAN_SHADOW_MAP_HEIGHT,
+            .mip_levels = 1,
+            .format = context->device.depth_format,
+            .msaa_sample_count = VK_SAMPLE_COUNT_1_BIT,
+            .tiling = VK_IMAGE_TILING_OPTIMAL,
+            .usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            .aspect = VK_IMAGE_ASPECT_DEPTH_BIT,
+            .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+        }, &context->shadow_maps[index]);
+        if (!success) {
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -359,4 +377,9 @@ void vulkan_uniform_objects_destroy(VulkanContext* context) {
 
     // Destroy fallback texture
     vulkan_image_destroy(context, &context->fallback_texture);
+
+    // Destroy shadow maps
+    for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
+        vulkan_image_destroy(context, &context->shadow_maps[index]);
+    }
 }

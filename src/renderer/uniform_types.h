@@ -5,6 +5,7 @@
 struct RendererUniformBufferObject {
     mat4 view;
     mat4 projection;
+    mat4 depth_view_projection;
     vec4 view_position;
     vec4 light_position;
 };

@@ -117,6 +117,9 @@ bool renderer_init(SDL_Window* window) {
     if (!vulkan_pipeline_create_outline(&context, &context.outline_pipeline)) {
         return false;
     }
+    if (!vulkan_pipeline_create_shadow(&context, &context.shadow_pipeline)) {
+        return false;
+    }
 
     // Create graphics command buffer
     VkCommandBufferAllocateInfo graphics_command_buffer_allocate_info {
@@ -180,6 +183,7 @@ void renderer_quit() {
         context.graphics_command_buffers);
     vulkan_pipeline_destroy(&context, &context.graphics_pipeline);
     vulkan_pipeline_destroy(&context, &context.outline_pipeline);
+    vulkan_pipeline_destroy(&context, &context.shadow_pipeline);
     vulkan_swapchain_destroy(&context);
     vulkan_device_destroy(&context);
 
@@ -260,6 +264,9 @@ void renderer_draw_frame(RenderPacket packet) {
     RendererUniformBufferObject ubo {
         .view = packet.view,
         .projection = mat4::perspective(45.0f * SBK_DEG_TO_RAD, (float)context.swapchain.extent.width / (float)context.swapchain.extent.height, 0.1f, 1000.0f),
+        .depth_view_projection =
+            mat4::ortho(-10.0f, 10.0f, 10.0f, -10.0f, 1.0f, 7.5f) *
+            mat4::look_at(packet.light_position, vec3(0.0f, 0.0f, 0.0f), vec3::up()),
         .view_position = vec4(packet.view_position, 0.0f),
         .light_position = vec4(packet.light_position, 0.0f)
     };
@@ -270,10 +277,103 @@ void renderer_draw_frame(RenderPacket packet) {
         .data = &ubo
     });
 
-    // RENDER MODEL
-
-    // RENDER PASS - GRAPHICS
+    // SHADOW PASS
     {
+        // Transition shadow map to DEPTH_ATTACHMENT_OPTIMAL
+        vulkan_image_transition_layout_ext({
+            .command_buffer = context.graphics_command_buffers[context.frame_index],
+            .image = context.shadow_maps[context.frame_index].handle,
+            .image_aspect = VK_IMAGE_ASPECT_DEPTH_BIT,
+            .base_mip_level = 0,
+            .mip_levels = 1,
+            .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .new_layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+            .src_access_mask = VK_ACCESS_2_NONE,
+            .dst_access_mask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .src_stage_mask = VK_PIPELINE_STAGE_2_NONE,
+            .dst_stage_mask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        });
+
+        // Rendering info
+        VkRenderingAttachmentInfo shadow_pass_depth_attachment {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = nullptr,
+            .imageView = context.shadow_maps[context.frame_index].view,
+            .imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+            .resolveMode = VK_RESOLVE_MODE_NONE,
+            .resolveImageView = VK_NULL_HANDLE,
+            .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = {
+                .depthStencil = {
+                    .depth = 1.0f,
+                    .stencil = 0
+                }
+            }
+        };
+        VkRenderingInfo shadow_pass_rendering_info {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .renderArea = {
+                .offset = { .x = 0, .y = 0 },
+                .extent = {
+                    .width = VULKAN_SHADOW_MAP_WIDTH,
+                    .height = VULKAN_SHADOW_MAP_HEIGHT
+                }
+            },
+            .layerCount = 1,
+            .viewMask = 0,
+            .colorAttachmentCount = 0,
+            .pColorAttachments = nullptr,
+            .pDepthAttachment = &shadow_pass_depth_attachment,
+            .pStencilAttachment = nullptr
+        };
+        vkCmdBeginRendering(context.graphics_command_buffers[context.frame_index], &shadow_pass_rendering_info);
+
+        vulkan_pipeline_bind(&context, &context.shadow_pipeline);
+
+        VkViewport viewport {
+            .x = 0,
+            .y = 0,
+            .width = (float)VULKAN_SHADOW_MAP_WIDTH,
+            .height = (float)VULKAN_SHADOW_MAP_HEIGHT,
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f
+        };
+        VkRect2D scissor = {
+            .offset = { .x = 0, .y = 0 },
+            .extent = {
+                .width = VULKAN_SHADOW_MAP_WIDTH,
+                .height = VULKAN_SHADOW_MAP_HEIGHT,
+            }
+        };
+        vkCmdSetViewport(context.graphics_command_buffers[context.frame_index], 0, 1, &viewport);
+        vkCmdSetScissor(context.graphics_command_buffers[context.frame_index], 0, 1, &scissor);
+
+        renderer_draw_scene(packet, false);
+
+        vkCmdEndRendering(context.graphics_command_buffers[context.frame_index]);
+    }
+
+    // GRAPHICS PASS
+    {
+        // Transition shadow map to DEPTH_STENCIL_READ_ONLY_OPTIMAL
+        vulkan_image_transition_layout_ext({
+            .command_buffer = context.graphics_command_buffers[context.frame_index],
+            .image = context.shadow_maps[context.frame_index].handle,
+            .image_aspect = VK_IMAGE_ASPECT_DEPTH_BIT,
+            .base_mip_level = 0,
+            .mip_levels = 1,
+            .old_layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+            .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+            .src_access_mask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dst_access_mask = VK_ACCESS_2_SHADER_READ_BIT,
+            .src_stage_mask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+            .dst_stage_mask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+        });
+
         // Transition swapchain image to COLOR_ATTACHMENT_OPTIMAL
         vulkan_image_transition_layout_ext({
             .command_buffer = context.graphics_command_buffers[context.frame_index],
