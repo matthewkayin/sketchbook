@@ -23,7 +23,7 @@ bool vulkan_model_load_textures(VulkanContext* context, const tg3_model& model, 
 void vulkan_model_load_materials(VulkanContext* context, const tg3_model& model, VulkanModel* out_model);
 bool vulkan_model_load_meshes(VulkanContext* context, const tg3_model& model, VulkanModel* out_model);
 void vulkan_model_load_nodes(const tg3_model& model, VulkanModel* out_model);
-void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, const VulkanNode& node, mat4 transform);
+void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, const VulkanNode& node, mat4 transform, bool use_material);
 
 bool vulkan_model_load(VulkanContext* context, const char* path, VulkanModel* out_model) {
     bool success = true;
@@ -207,7 +207,7 @@ void vulkan_model_load_materials(VulkanContext* context, const tg3_model& model,
 
     // Allocate descriptors for the materials
     out_model->material_descriptor_sets = std::vector<VkDescriptorSet>(model.materials_count);
-    std::vector<VkDescriptorSetLayout> set_layouts(model.materials_count, context->graphics_pipeline.descriptor_set_layouts[1]);
+    std::vector<VkDescriptorSetLayout> set_layouts(model.materials_count, context->model_descriptor_set_layout);
     descriptor_set_allocate_info = {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
         .pNext = nullptr,
@@ -434,7 +434,7 @@ void vulkan_model_load_nodes(const tg3_model& model, VulkanModel* out_model) {
     }
 }
 
-void vulkan_model_render(VulkanContext* context, const VulkanModel& model, mat4 transform) {
+void vulkan_model_render(VulkanContext* context, const VulkanModel& model, mat4 transform, bool use_material) {
     VkDeviceSize offsets = 0;
     vkCmdBindVertexBuffers(
         context->graphics_command_buffers[context->frame_index],
@@ -449,11 +449,11 @@ void vulkan_model_render(VulkanContext* context, const VulkanModel& model, mat4 
             continue;
         }
 
-        vulkan_model_render_node(context, model, node, transform);
+        vulkan_model_render_node(context, model, node, transform, use_material);
     }
 }
 
-void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, const VulkanNode& node, mat4 transform) {
+void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, const VulkanNode& node, mat4 transform, bool use_material) {
     if (node.mesh_index == VULKAN_NODE_MESH_NONE) {
         return;
     }
@@ -470,11 +470,11 @@ void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, c
         const VulkanPrimitive& primitive = mesh.primitives[primitive_index];
 
         // Bind material
-        if (primitive.material_index != VULKAN_MESH_MATERIAL_NONE) {
+        if (use_material && primitive.material_index != VULKAN_MESH_MATERIAL_NONE) {
             vkCmdBindDescriptorSets(
                 context->graphics_command_buffers[context->frame_index],
                 VK_PIPELINE_BIND_POINT_GRAPHICS, context->bound_pipeline->layout,
-                1, 1, &model.material_descriptor_sets[primitive.material_index],
+                2, 1, &model.material_descriptor_sets[primitive.material_index],
                 0, nullptr);
         }
 
@@ -488,6 +488,6 @@ void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, c
 
     // Render each child
     for (uint32_t child_index = 0; child_index < node.child_indices.size(); child_index++) {
-        vulkan_model_render_node(context, model, model.nodes[node.child_indices[child_index]], constants.model);
+        vulkan_model_render_node(context, model, model.nodes[node.child_indices[child_index]], constants.model, use_material);
     }
 }

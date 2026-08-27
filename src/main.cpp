@@ -50,12 +50,9 @@ int main() {
     state.camera_yaw = 45.0f * SBK_DEG_TO_RAD;
     state.camera_distance = 10.0f;
     state.model_angle = 0.0f;
-    state.show_outline = true;
+    state.show_outline = false;
 
-    renderer_set_light_data({
-        .light_position = vec4(2.0f, 2.0f, -2.0f, 0.0f),
-        .light_color = vec4(0.5f, 0.5, 0.5f, 1.0f)
-    });
+    vec3 light_position = vec3(2.0f, 2.0f, -2.0f);
 
     while (app_is_running()) {
         input_poll_events();
@@ -108,6 +105,7 @@ int main() {
         renderer_draw_frame({
             .view = mat4::look_at(camera_position, vec3(0.0f, 0.0f, 0.0f), vec3::up()),
             .view_position = camera_position,
+            .light_position = light_position,
             .model_index = state.current_model,
             .model_transform = mat4::scale(vec3(4.0f, 4.0f, 4.0f)) * model_rotation.to_rotation_matrix(model_position),
             .show_outline = state.show_outline

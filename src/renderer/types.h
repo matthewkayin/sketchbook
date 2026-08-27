@@ -63,7 +63,6 @@ struct VulkanSwapchain {
 struct VulkanPipeline {
     VkPipeline handle;
     VkPipelineLayout layout;
-    std::vector<VkDescriptorSetLayout> descriptor_set_layouts;
 };
 
 struct VulkanBuffer {
@@ -133,14 +132,16 @@ struct VulkanContext {
     VkCommandBuffer graphics_command_buffers[VULKAN_MAX_FRAMES_IN_FLIGHT];
 
     // Descriptors
+    VkDescriptorSetLayout global_descriptor_set_layout;
+    VkDescriptorSetLayout graphics_descriptor_set_layout;
+    VkDescriptorSetLayout model_descriptor_set_layout;
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet global_descriptor_sets[VULKAN_MAX_FRAMES_IN_FLIGHT];
+    VkDescriptorSet graphics_descriptor_sets[VULKAN_MAX_FRAMES_IN_FLIGHT];
 
     // Shader resources
     VulkanBuffer uniform_buffers[VULKAN_MAX_FRAMES_IN_FLIGHT];
-    VulkanBuffer light_data_buffer;
     VulkanImage hatch_textures[VULKAN_HATCH_TEXTURE_IMAGE_COUNT];
-    VulkanImage hatch_textures2[VULKAN_HATCH_TEXTURE_IMAGE_COUNT];
     VkSampler texture_sampler;
     VulkanImage fallback_texture;
 

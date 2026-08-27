@@ -10,12 +10,7 @@ struct UniformBuffer {
     float4x4 view;
     float4x4 proj;
     float4 view_position;
-    float4 mode;
-};
-
-struct LightData {
     float4 light_position;
-    float4 light_color;
 };
 
 struct PushConstants {
@@ -23,14 +18,7 @@ struct PushConstants {
     float4x4 normal;
 };
 
-[[vk::binding(0, 0)]] StructuredBuffer<LightData> light_data;
-[[vk::binding(1, 0)]] ConstantBuffer<UniformBuffer> ubo;
-[[vk::binding(2, 0)]] Sampler2D hatch_texture0;
-[[vk::binding(3, 0)]] Sampler2D hatch_texture1;
-[[vk::binding(4, 0)]] Sampler2D hatch_texture2;
-[[vk::binding(5, 0)]] Sampler2D hatch_texture3;
-
-[[vk::binding(0, 1)]] Sampler2D color_texture;
+[[vk::binding(0, 0)]] ConstantBuffer<UniformBuffer> ubo;
 
 [[vk::push_constant]] PushConstants push_constants;
 

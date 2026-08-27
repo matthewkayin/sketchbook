@@ -7,8 +7,8 @@
 struct RenderPacket {
     mat4 view;
     vec3 view_position;
+    vec3 light_position;
 
-    // TODO: allow multiple model renders
     uint32_t model_index;
     mat4 model_transform;
     bool show_outline;

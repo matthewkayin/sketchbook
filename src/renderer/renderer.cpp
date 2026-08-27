@@ -11,6 +11,7 @@
 #include "renderer/image.h"
 #include "renderer/buffer.h"
 #include "renderer/model.h"
+#include "renderer/descriptor.h"
 #include <SDL3/SDL_vulkan.h>
 #include <vector>
 
@@ -29,15 +30,7 @@ void renderer_create_debugger();
 // Internal
 void renderer_create_sync_objects();
 void renderer_destroy_sync_objects();
-void renderer_create_uniform_objects();
-void renderer_destroy_uniform_objects();
 void renderer_recreate_swapchain();
-void renderer_create_texture_sampler();
-void renderer_destroy_texture_sampler();
-bool renderer_create_hatch_textures(VulkanImageMipmapType mipmap_type, VulkanImage* out_images);
-void renderer_destroy_hatch_textures();
-bool renderer_create_fallback_texture();
-void renderer_destroy_fallback_texture();
 
 // Context
 static VulkanContext context;
@@ -109,102 +102,19 @@ bool renderer_init(SDL_Window* window) {
     }
     vulkan_swapchain_create(&context);
 
-    // Create graphics pipeline
-    VkVertexInputAttributeDescription graphics_pipeline_attributes[] = {
-        {
-            .location = 0,
-            .binding = 0,
-            .format = VK_FORMAT_R32G32B32_SFLOAT,
-            .offset = offsetof(Vertex3d, position)
-        },
-        {
-            .location = 1,
-            .binding = 0,
-            .format = VK_FORMAT_R32G32B32_SFLOAT,
-            .offset = offsetof(Vertex3d, normal)
-        },
-        {
-            .location = 2,
-            .binding = 0,
-            .format = VK_FORMAT_R32G32_SFLOAT,
-            .offset = offsetof(Vertex3d, tex_coord)
-        }
-    };
-    VulkanPipelineDescriptor graphics_pipeline_descriptors[] = {
-        // Global descriptor set
-        {
-            .set = 0, .binding = 0,
-            .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
-        },
-        {
-            .set = 0, .binding = 1,
-            .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .stage_flags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT
-        },
-        {
-            .set = 0, .binding = 2,
-            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
-        },
-        {
-            .set = 0, .binding = 3,
-            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
-        },
-        {
-            .set = 0, .binding = 4,
-            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
-        },
-        {
-            .set = 0, .binding = 5,
-            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
-        },
-        // Model descriptor set
-        {
-            .set = 1, .binding = 0,
-            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .stage_flags = VK_SHADER_STAGE_FRAGMENT_BIT
-        }
-    };
-    VkPushConstantRange graphics_push_constants[] = {
-        {
-            .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-            .offset = 0,
-            .size = sizeof(RendererPushConstants)
-        }
-    };
-
-    VulkanPipelineCreateParams graphics_pipeline_create_params {
-        .shader_path = "shader/shader.spv",
-        .vertex_input_stride = sizeof(Vertex3d),
-        .attribute_count = array_length(graphics_pipeline_attributes),
-        .attributes = graphics_pipeline_attributes,
-        .descriptor_count = array_length(graphics_pipeline_descriptors),
-        .descriptors = graphics_pipeline_descriptors,
-        .push_constant_count = array_length(graphics_push_constants),
-        .push_constants = graphics_push_constants,
-        .cull_mode = VK_CULL_MODE_BACK_BIT
-    };
-    if (!vulkan_pipeline_create(&context, graphics_pipeline_create_params, &context.graphics_pipeline)) {
+    // Create uniform objects
+    if (!vulkan_uniform_objects_create(&context)) {
         return false;
     }
 
-    // Create outline pipeline
-    VulkanPipelineCreateParams outline_pipeline_create_params {
-        .shader_path = "shader/outline.spv",
-        .vertex_input_stride = sizeof(Vertex3d),
-        .attribute_count = array_length(graphics_pipeline_attributes),
-        .attributes = graphics_pipeline_attributes,
-        .descriptor_count = array_length(graphics_pipeline_descriptors),
-        .descriptors = graphics_pipeline_descriptors,
-        .push_constant_count = array_length(graphics_push_constants),
-        .push_constants = graphics_push_constants,
-        .cull_mode = VK_CULL_MODE_FRONT_BIT
-    };
-    if (!vulkan_pipeline_create(&context, outline_pipeline_create_params, &context.outline_pipeline)) {
+    // Create descriptors
+    vulkan_descriptor_sets_create(&context);
+
+    // Create pipelines
+    if (!vulkan_pipeline_create_graphics(&context, &context.graphics_pipeline)) {
+        return false;
+    }
+    if (!vulkan_pipeline_create_outline(&context, &context.outline_pipeline)) {
         return false;
     }
 
@@ -223,20 +133,6 @@ bool renderer_init(SDL_Window* window) {
 
     renderer_create_sync_objects();
 
-    // Load hatch textures
-    if (!renderer_create_hatch_textures(VULKAN_IMAGE_MIPMAP_SUBSET, context.hatch_textures)) {
-        return false;
-    }
-    if (!renderer_create_hatch_textures(VULKAN_IMAGE_MIPMAP_SCALED, context.hatch_textures2)) {
-        return false;
-    }
-    if (!renderer_create_fallback_texture()) {
-        return false;
-    }
-
-    renderer_create_texture_sampler();
-    renderer_create_uniform_objects();
-
     context.frame_index = 0;
 
     log_info("Renderer initialized.");
@@ -250,10 +146,8 @@ void renderer_quit() {
         vulkan_model_destroy(&context, &context.model_data[index]);
     }
 
-    renderer_destroy_uniform_objects();
-    renderer_destroy_texture_sampler();
-    renderer_destroy_fallback_texture();
-    renderer_destroy_hatch_textures();
+    vulkan_descriptor_sets_destroy(&context);
+    vulkan_uniform_objects_destroy(&context);
     renderer_destroy_sync_objects();
     vkFreeCommandBuffers(
         context.device.logical_device,
@@ -326,124 +220,6 @@ void renderer_draw_frame(RenderPacket packet) {
     };
     vkBeginCommandBuffer(context.graphics_command_buffers[context.frame_index], &command_buffer_begin_info);
 
-    // Transition swapchain image to COLOR_ATTACHMENT_OPTIMAL
-    vulkan_image_transition_layout_ext({
-        .command_buffer = context.graphics_command_buffers[context.frame_index],
-        .image = context.swapchain.images[context.image_index],
-        .image_aspect = VK_IMAGE_ASPECT_COLOR_BIT,
-        .base_mip_level = 0,
-        .mip_levels = 1,
-        .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .src_access_mask = VK_ACCESS_2_NONE,
-        .dst_access_mask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        .src_stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .dst_stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
-    });
-
-    // Transition multisampled color attachment to COLOR_ATTACHMENT_OPTIMAL
-    vulkan_image_transition_layout_ext({
-        .command_buffer = context.graphics_command_buffers[context.frame_index],
-        .image = context.swapchain.color_attachment.handle,
-        .image_aspect = VK_IMAGE_ASPECT_COLOR_BIT,
-        .base_mip_level = 0,
-        .mip_levels = 1,
-        .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .src_access_mask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        .dst_access_mask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        .src_stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .dst_stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
-    });
-
-    // Transition depth attachment to DEPTH_ATTACHMENT_OPTIMAL
-    vulkan_image_transition_layout_ext({
-        .command_buffer = context.graphics_command_buffers[context.frame_index],
-        .image = context.swapchain.depth_attachment.handle,
-        .image_aspect = VK_IMAGE_ASPECT_DEPTH_BIT,
-        .base_mip_level = 0,
-        .mip_levels = 1,
-        .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .new_layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-        .src_access_mask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        .dst_access_mask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        .src_stage_mask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-        .dst_stage_mask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-    });
-
-    VkRenderingAttachmentInfo color_attachment {
-        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .pNext = nullptr,
-        .imageView = context.swapchain.color_attachment.view,
-        .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT,
-        .resolveImageView = context.swapchain.image_views[context.image_index],
-        .resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-        .clearValue = {
-            .color = { .float32 = { 0.9f, 0.9f, 0.9f, 1.0f }}
-        }
-    };
-    VkRenderingAttachmentInfo depth_attachment {
-        .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-        .pNext = nullptr,
-        .imageView = context.swapchain.depth_attachment.view,
-        .imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-        .resolveMode = VK_RESOLVE_MODE_NONE,
-        .resolveImageView = VK_NULL_HANDLE,
-        .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-        .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-        .clearValue = {
-            .depthStencil = {
-                .depth = 1.0f,
-                .stencil = 0
-            }
-        }
-    };
-
-    VkRenderingInfo rendering_info {
-        .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .renderArea = {
-            .offset = { .x = 0, .y = 0 },
-            .extent = context.swapchain.extent
-        },
-        .layerCount = 1,
-        .viewMask = 0,
-        .colorAttachmentCount = 1,
-        .pColorAttachments = &color_attachment,
-        .pDepthAttachment = &depth_attachment,
-        .pStencilAttachment = nullptr
-    };
-    vkCmdBeginRendering(
-        context.graphics_command_buffers[context.frame_index],
-        &rendering_info);
-
-    VkViewport viewport {
-        .x = 0,
-        .y = 0,
-        .width = (float)context.swapchain.extent.width,
-        .height = (float)context.swapchain.extent.height,
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f
-    };
-    VkRect2D scissor = {
-        .offset = { .x = 0, .y = 0 },
-        .extent = context.swapchain.extent
-    };
-
-    // RENDER PASS 1 - GRAPHICS PIPELINE
-    vkCmdBindPipeline(
-        context.graphics_command_buffers[context.frame_index],
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        context.graphics_pipeline.handle);
-    context.bound_pipeline = &context.graphics_pipeline;
-    vkCmdSetViewport(context.graphics_command_buffers[context.frame_index], 0, 1, &viewport);
-    vkCmdSetScissor(context.graphics_command_buffers[context.frame_index], 0, 1, &scissor);
-
     // Bind global descriptor set
     vkCmdBindDescriptorSets(
         context.graphics_command_buffers[context.frame_index],
@@ -458,7 +234,8 @@ void renderer_draw_frame(RenderPacket packet) {
             45.0f * SBK_DEG_TO_RAD,
             (float)context.swapchain.extent.width / (float)context.swapchain.extent.height,
             0.1f, 1000.0f),
-        .view_position = vec4(packet.view_position, 0.0f)
+        .view_position = vec4(packet.view_position, 0.0f),
+        .light_position = vec4(packet.light_position, 0.0f)
     };
 
     // This accounts for the fact that our math library is GL-style (Y coordinate inverted)
@@ -472,88 +249,203 @@ void renderer_draw_frame(RenderPacket packet) {
     });
 
     // RENDER MODEL
-    vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform);
 
-    // RENDER PASS 2 - OUTLINE
-    if (packet.show_outline) {
-        vkCmdBindPipeline(
+    // RENDER PASS - GRAPHICS
+    {
+        // Transition swapchain image to COLOR_ATTACHMENT_OPTIMAL
+        vulkan_image_transition_layout_ext({
+            .command_buffer = context.graphics_command_buffers[context.frame_index],
+            .image = context.swapchain.images[context.image_index],
+            .image_aspect = VK_IMAGE_ASPECT_COLOR_BIT,
+            .base_mip_level = 0,
+            .mip_levels = 1,
+            .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .src_access_mask = VK_ACCESS_2_NONE,
+            .dst_access_mask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .src_stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dst_stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
+        });
+
+        // Transition multisampled color attachment to COLOR_ATTACHMENT_OPTIMAL
+        vulkan_image_transition_layout_ext({
+            .command_buffer = context.graphics_command_buffers[context.frame_index],
+            .image = context.swapchain.color_attachment.handle,
+            .image_aspect = VK_IMAGE_ASPECT_COLOR_BIT,
+            .base_mip_level = 0,
+            .mip_levels = 1,
+            .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .src_access_mask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .dst_access_mask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .src_stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dst_stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
+        });
+
+        // Transition depth attachment to DEPTH_ATTACHMENT_OPTIMAL
+        vulkan_image_transition_layout_ext({
+            .command_buffer = context.graphics_command_buffers[context.frame_index],
+            .image = context.swapchain.depth_attachment.handle,
+            .image_aspect = VK_IMAGE_ASPECT_DEPTH_BIT,
+            .base_mip_level = 0,
+            .mip_levels = 1,
+            .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .new_layout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+            .src_access_mask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dst_access_mask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .src_stage_mask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+            .dst_stage_mask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        });
+
+        VkRenderingAttachmentInfo color_attachment {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = nullptr,
+            .imageView = context.swapchain.color_attachment.view,
+            .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT,
+            .resolveImageView = context.swapchain.image_views[context.image_index],
+            .resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+            .clearValue = {
+                .color = { .float32 = { 0.9f, 0.9f, 0.9f, 1.0f }}
+            }
+        };
+        VkRenderingAttachmentInfo depth_attachment {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+            .pNext = nullptr,
+            .imageView = context.swapchain.depth_attachment.view,
+            .imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+            .resolveMode = VK_RESOLVE_MODE_NONE,
+            .resolveImageView = VK_NULL_HANDLE,
+            .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+            .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+            .clearValue = {
+                .depthStencil = {
+                    .depth = 1.0f,
+                    .stencil = 0
+                }
+            }
+        };
+
+        VkRenderingInfo rendering_info {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .renderArea = {
+                .offset = { .x = 0, .y = 0 },
+                .extent = context.swapchain.extent
+            },
+            .layerCount = 1,
+            .viewMask = 0,
+            .colorAttachmentCount = 1,
+            .pColorAttachments = &color_attachment,
+            .pDepthAttachment = &depth_attachment,
+            .pStencilAttachment = nullptr
+        };
+        vkCmdBeginRendering(
             context.graphics_command_buffers[context.frame_index],
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
-            context.outline_pipeline.handle);
-        context.bound_pipeline = &context.outline_pipeline;
+            &rendering_info);
 
-        vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform);
+        VkViewport viewport {
+            .x = 0,
+            .y = 0,
+            .width = (float)context.swapchain.extent.width,
+            .height = (float)context.swapchain.extent.height,
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f
+        };
+        VkRect2D scissor = {
+            .offset = { .x = 0, .y = 0 },
+            .extent = context.swapchain.extent
+        };
+
+        // Bind pipeline
+        vulkan_pipeline_bind(&context, &context.graphics_pipeline);
+        vkCmdSetViewport(context.graphics_command_buffers[context.frame_index], 0, 1, &viewport);
+        vkCmdSetScissor(context.graphics_command_buffers[context.frame_index], 0, 1, &scissor);
+
+        // Bind graphics descriptor sets
+        vkCmdBindDescriptorSets(
+            context.graphics_command_buffers[context.frame_index],
+            VK_PIPELINE_BIND_POINT_GRAPHICS, context.bound_pipeline->layout,
+            1, 1, &context.graphics_descriptor_sets[context.frame_index],
+            0, nullptr);
+
+        vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform, true);
+
+        // RENDER PASS 2 - OUTLINE
+        if (packet.show_outline) {
+            vulkan_pipeline_bind(&context, &context.outline_pipeline);
+
+            vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform, false);
+        }
+
+        vkCmdEndRendering(context.graphics_command_buffers[context.frame_index]);
     }
 
-    // END FRAME
+    // SUBMIT / PRESENT
+    {
+        // Transition the swapchain image to PRESENT
+        vulkan_image_transition_layout_ext({
+            .command_buffer = context.graphics_command_buffers[context.frame_index],
+            .image = context.swapchain.images[context.image_index],
+            .image_aspect = VK_IMAGE_ASPECT_COLOR_BIT,
+            .base_mip_level = 0,
+            .mip_levels = 1,
+            .old_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .new_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+            .src_access_mask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .dst_access_mask = VK_ACCESS_2_NONE,
+            .src_stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dst_stage_mask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT
+        });
 
-    vkCmdEndRendering(context.graphics_command_buffers[context.frame_index]);
+        vkEndCommandBuffer(context.graphics_command_buffers[context.frame_index]);
 
-    // Transition the swapchain image to PRESENT
-    vulkan_image_transition_layout_ext({
-        .command_buffer = context.graphics_command_buffers[context.frame_index],
-        .image = context.swapchain.images[context.image_index],
-        .image_aspect = VK_IMAGE_ASPECT_COLOR_BIT,
-        .base_mip_level = 0,
-        .mip_levels = 1,
-        .old_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .new_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-        .src_access_mask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        .dst_access_mask = VK_ACCESS_2_NONE,
-        .src_stage_mask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        .dst_stage_mask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT
-    });
+        VkPipelineStageFlags pipeline_stage_flags[] = {
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
+        };
+        VkSubmitInfo submit_info {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+            .pNext = nullptr,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &context.acquire_semaphores[context.frame_index],
+            .pWaitDstStageMask = pipeline_stage_flags,
+            .commandBufferCount = 1,
+            .pCommandBuffers = &context.graphics_command_buffers[context.frame_index],
+            .signalSemaphoreCount = 1,
+            .pSignalSemaphores = &context.submit_semaphores[context.image_index]
+        };
+        VkResult submit_result = vkQueueSubmit(context.device.graphics_queue,
+            1, &submit_info, context.frame_fences[context.frame_index]);
+        if (submit_result != VK_SUCCESS) {
+            log_error("renderer_draw_frame() - vkQueueSubmit failed with result %s.", vulkan_result_str(submit_result));
+            return;
+        }
 
-    vkEndCommandBuffer(context.graphics_command_buffers[context.frame_index]);
+        VkPresentInfoKHR present_info {
+            .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+            .pNext = nullptr,
+            .waitSemaphoreCount = 1,
+            .pWaitSemaphores = &context.submit_semaphores[context.image_index],
+            .swapchainCount = 1,
+            .pSwapchains = &context.swapchain.handle,
+            .pImageIndices = &context.image_index,
+            .pResults = nullptr
+        };
+        VkResult present_result = vkQueuePresentKHR(context.device.present_queue, &present_info);
+        if (present_result == VK_ERROR_OUT_OF_DATE_KHR || present_result == VK_SUBOPTIMAL_KHR) {
+            log_info("vkQueuePresentKHR returned result %s. Recreating swapchain...", vulkan_result_str(present_result));
+            renderer_recreate_swapchain();
+        } else if (present_result != VK_SUCCESS) {
+            log_error("Failed to present swapchain image: %s.", vulkan_result_str(present_result));
+        }
 
-    VkPipelineStageFlags pipeline_stage_flags[] = {
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
-    };
-    VkSubmitInfo submit_info {
-        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .pNext = nullptr,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &context.acquire_semaphores[context.frame_index],
-        .pWaitDstStageMask = pipeline_stage_flags,
-        .commandBufferCount = 1,
-        .pCommandBuffers = &context.graphics_command_buffers[context.frame_index],
-        .signalSemaphoreCount = 1,
-        .pSignalSemaphores = &context.submit_semaphores[context.image_index]
-    };
-    VkResult submit_result = vkQueueSubmit(context.device.graphics_queue,
-        1, &submit_info, context.frame_fences[context.frame_index]);
-    if (submit_result != VK_SUCCESS) {
-        log_error("renderer_draw_frame() - vkQueueSubmit failed with result %s.", vulkan_result_str(submit_result));
-        return;
-    }
-
-    VkPresentInfoKHR present_info {
-        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
-        .pNext = nullptr,
-        .waitSemaphoreCount = 1,
-        .pWaitSemaphores = &context.submit_semaphores[context.image_index],
-        .swapchainCount = 1,
-        .pSwapchains = &context.swapchain.handle,
-        .pImageIndices = &context.image_index,
-        .pResults = nullptr
-    };
-    VkResult present_result = vkQueuePresentKHR(context.device.present_queue, &present_info);
-    if (present_result == VK_ERROR_OUT_OF_DATE_KHR || present_result == VK_SUBOPTIMAL_KHR) {
-        log_info("vkQueuePresentKHR returned result %s. Recreating swapchain...", vulkan_result_str(present_result));
-        renderer_recreate_swapchain();
-    } else if (present_result != VK_SUCCESS) {
-        log_error("Failed to present swapchain image: %s.", vulkan_result_str(present_result));
     }
 
     context.frame_index = (context.frame_index + 1) % VULKAN_MAX_FRAMES_IN_FLIGHT;
-}
-
-void renderer_set_light_data(const RendererLightData& data) {
-    vulkan_buffer_upload_data(&context, &context.light_data_buffer, {
-        .offset = 0,
-        .size = sizeof(data),
-        .data = &data
-    });
 }
 
 bool renderer_load_model(const char* path, uint32_t* out_model_index) {
@@ -629,6 +521,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL renderer_debug_callback(
         default:
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT: {
             log_error(callback_data->pMessage);
+            SBK_ASSERT(false);
             break;
         }
         case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT: {
@@ -759,179 +652,6 @@ void renderer_destroy_sync_objects() {
     }
 }
 
-void renderer_create_uniform_objects() {
-    // Create uniform buffers
-    for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
-        vulkan_buffer_create(&context, {
-            .size = VULKAN_MAX_FRAMES_IN_FLIGHT * sizeof(RendererUniformBufferObject),
-            .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            .memory_properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-            .bind_on_create = true
-        }, &context.uniform_buffers[index]);
-    }
-
-    // Create light data buffer
-    vulkan_buffer_create(&context, {
-        .size = sizeof(RendererLightData),
-        .usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        .memory_properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-        .bind_on_create = true
-    }, &context.light_data_buffer);
-
-    // Create descriptor pool
-    VkDescriptorPoolSize descriptor_pool_sizes[] = {
-        {
-            .type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .descriptorCount = VULKAN_MAX_FRAMES_IN_FLIGHT
-        },
-        {
-            .type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .descriptorCount = VULKAN_MAX_FRAMES_IN_FLIGHT * 2
-        },
-        {
-            .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = VULKAN_COMBINED_IMAGE_SAMPLER_DESCRIPTOR_COUNT
-        }
-    };
-    VkDescriptorPoolCreateInfo descriptor_pool_create_info {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .maxSets = VULKAN_DESCRIPTOR_POOL_MAX_SETS,
-        .poolSizeCount = array_length(descriptor_pool_sizes),
-        .pPoolSizes = descriptor_pool_sizes
-    };
-    VK_CHECK(vkCreateDescriptorPool(
-        context.device.logical_device,
-        &descriptor_pool_create_info,
-        context.allocator,
-        &context.descriptor_pool));
-
-    // Create descriptor sets
-    VkDescriptorSetLayout layouts[VULKAN_MAX_FRAMES_IN_FLIGHT] = {
-        context.graphics_pipeline.descriptor_set_layouts[0],
-        context.graphics_pipeline.descriptor_set_layouts[0]
-    };
-    VkDescriptorSetAllocateInfo descriptor_set_allocate_info {
-        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-        .pNext = nullptr,
-        .descriptorPool = context.descriptor_pool,
-        .descriptorSetCount = array_length(layouts),
-        .pSetLayouts = layouts
-    };
-    VK_CHECK(vkAllocateDescriptorSets(
-        context.device.logical_device, &descriptor_set_allocate_info, context.global_descriptor_sets));
-
-    // Write descriptor sets
-    std::vector<VkWriteDescriptorSet> descriptor_writes;
-
-    // Light data storage buffer descriptors
-    VkDescriptorBufferInfo light_data_buffer_info {
-        .buffer = context.light_data_buffer.handle,
-        .offset = 0,
-        .range = sizeof(RendererLightData)
-    };
-    for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
-        descriptor_writes.push_back({
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = nullptr,
-            .dstSet = context.global_descriptor_sets[index],
-            .dstBinding = 0,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .pImageInfo = nullptr,
-            .pBufferInfo = &light_data_buffer_info,
-            .pTexelBufferView = nullptr
-        });
-    }
-
-
-    // Uniform buffer descriptors
-    VkDescriptorBufferInfo uniform_buffer_infos[VULKAN_MAX_FRAMES_IN_FLIGHT];
-    for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
-        uniform_buffer_infos[index] = {
-            .buffer = context.uniform_buffers[index].handle,
-            .offset = 0,
-            .range = sizeof(RendererUniformBufferObject)
-        };
-
-        descriptor_writes.push_back({
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .pNext = nullptr,
-            .dstSet = context.global_descriptor_sets[index],
-            .dstBinding = 1,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-            .pImageInfo = nullptr,
-            .pBufferInfo = &uniform_buffer_infos[index],
-            .pTexelBufferView = nullptr
-        });
-    }
-
-    // Hatch texture combined image sampler descriptors
-    VkDescriptorImageInfo image_infos[VULKAN_MAX_FRAMES_IN_FLIGHT];
-    for (uint32_t image_index = 0; image_index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; image_index++) {
-        image_infos[image_index] = {
-            .sampler = context.texture_sampler,
-            .imageView = context.hatch_textures[image_index].view,
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-        };
-        for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
-            descriptor_writes.push_back({
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .pNext = nullptr,
-                .dstSet = context.global_descriptor_sets[index],
-                .dstBinding = 2 + image_index,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .pImageInfo = &image_infos[image_index],
-                .pBufferInfo = nullptr,
-                .pTexelBufferView = nullptr
-            });
-        }
-    }
-
-    // Hatch texture 2 combined image sampler descriptors
-    VkDescriptorImageInfo image_infos2[VULKAN_MAX_FRAMES_IN_FLIGHT];
-    for (uint32_t image_index = 0; image_index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; image_index++) {
-        image_infos2[image_index] = {
-            .sampler = context.texture_sampler,
-            .imageView = context.hatch_textures2[image_index].view,
-            .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-        };
-        for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
-            descriptor_writes.push_back({
-                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-                .pNext = nullptr,
-                .dstSet = context.global_descriptor_sets[index],
-                .dstBinding = 4 + image_index,
-                .dstArrayElement = 0,
-                .descriptorCount = 1,
-                .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                .pImageInfo = &image_infos2[image_index],
-                .pBufferInfo = nullptr,
-                .pTexelBufferView = nullptr
-            });
-        }
-    }
-
-    vkUpdateDescriptorSets(
-        context.device.logical_device,
-        descriptor_writes.size(), descriptor_writes.data(),
-        0, nullptr);
-}
-
-void renderer_destroy_uniform_objects() {
-    vkDestroyDescriptorPool(context.device.logical_device, context.descriptor_pool, context.allocator);
-    for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
-        vulkan_buffer_destroy(&context, &context.uniform_buffers[index]);
-    }
-    vulkan_buffer_destroy(&context, &context.light_data_buffer);
-}
-
 void renderer_recreate_swapchain() {
     vkDeviceWaitIdle(context.device.logical_device);
 
@@ -941,114 +661,4 @@ void renderer_recreate_swapchain() {
     renderer_create_sync_objects();
 
     log_info("Swapchain recreated successfully.");
-}
-
-void renderer_create_texture_sampler() {
-    // Create texture sample
-    VkSamplerCreateInfo sampler_create_info {
-        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-        .pNext = nullptr,
-        .flags = 0,
-        .magFilter = VK_FILTER_LINEAR,
-        .minFilter = VK_FILTER_LINEAR,
-        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
-        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-        .mipLodBias = 0.0f,
-        .anisotropyEnable = VK_TRUE,
-        .maxAnisotropy = context.device.properties.limits.maxSamplerAnisotropy,
-        .compareEnable = VK_FALSE,
-        .compareOp = VK_COMPARE_OP_ALWAYS,
-        .minLod = 0.0f,
-        .maxLod = VK_LOD_CLAMP_NONE,
-        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-        .unnormalizedCoordinates = VK_FALSE,
-    };
-    VK_CHECK(vkCreateSampler(
-        context.device.logical_device,
-        &sampler_create_info,
-        context.allocator,
-        &context.texture_sampler));
-}
-
-void renderer_destroy_texture_sampler() {
-    vkDestroySampler(context.device.logical_device, context.texture_sampler, context.allocator);
-}
-
-bool renderer_create_hatch_textures(VulkanImageMipmapType mipmap_type, VulkanImage* out_images) {
-    bool success;
-
-    const char* hatch_texture_paths[VULKAN_HATCH_TEXTURE_CHANNEL_COUNT] = {
-        "../res/texture/hatch0.jpg",
-        "../res/texture/hatch1.jpg",
-        "../res/texture/hatch2.jpg",
-        "../res/texture/hatch3.jpg",
-        "../res/texture/hatch4.jpg",
-        "../res/texture/hatch5.jpg"
-    };
-
-    // Init surfaces to nullptr
-    SDL_Surface* hatch_surfaces[VULKAN_HATCH_TEXTURE_CHANNEL_COUNT];
-    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_CHANNEL_COUNT; index++) {
-        hatch_surfaces[index] = nullptr;
-    }
-
-    // Load each surface
-    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_CHANNEL_COUNT; index++) {
-        SDL_IOStream* image_stream = SDL_IOFromFile(hatch_texture_paths[index], "rb");
-        if (!image_stream) {
-            log_error("Failed to load hatch image at path %s: %s.", hatch_texture_paths[index], SDL_GetError());
-            success = false;
-            goto end;
-        }
-
-        hatch_surfaces[index] = vulkan_image_load_surface(image_stream, VULKAN_LOAD_SURFACE_FLIP_V);
-        if (!hatch_surfaces[index]) {
-            success = false;
-            goto end;
-        }
-    }
-
-    success = vulkan_image_create_hatch_textures(&context, hatch_surfaces, mipmap_type, out_images);
-
-end:
-    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_CHANNEL_COUNT; index++) {
-        if (hatch_surfaces[index]) {
-            SDL_DestroySurface(hatch_surfaces[index]);
-        }
-    }
-
-    return success;
-}
-
-void renderer_destroy_hatch_textures() {
-    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; index++) {
-        vulkan_image_destroy(&context, &context.hatch_textures[index]);
-    }
-    for (uint32_t index = 0; index < VULKAN_HATCH_TEXTURE_IMAGE_COUNT; index++) {
-        vulkan_image_destroy(&context, &context.hatch_textures2[index]);
-    }
-}
-
-bool renderer_create_fallback_texture() {
-    SDL_Surface* surface = SDL_CreateSurface(2, 2, SDL_PIXELFORMAT_ABGR8888);
-    if (!surface) {
-        log_error("Error creating surface for fallback texture: %s", SDL_GetError());
-        return false;
-    }
-
-    bool success = vulkan_image_create_textures(&context, {
-        .mipmap_type = VULKAN_IMAGE_MIPMAP_SCALED,
-        .surface_count = 1,
-        .surfaces = &surface
-    }, &context.fallback_texture);
-
-    SDL_DestroySurface(surface);
-
-    return success;
-}
-
-void renderer_destroy_fallback_texture() {
-    vulkan_image_destroy(&context, &context.fallback_texture);
 }
