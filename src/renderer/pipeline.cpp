@@ -602,10 +602,10 @@ bool vulkan_pipeline_create_shadow(VulkanContext* context, VulkanPipeline* out_p
         //.cullMode = VK_CULL_MODE_BACK_BIT,
         .cullMode = VK_CULL_MODE_NONE,
         .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-        .depthBiasEnable = VK_FALSE,
-        .depthBiasConstantFactor = 0.0f,
+        .depthBiasEnable = VK_TRUE,
+        .depthBiasConstantFactor = 1.25f,
         .depthBiasClamp = 0.0f,
-        .depthBiasSlopeFactor = 0.0f,
+        .depthBiasSlopeFactor = 1.75f,
         .lineWidth = 1.0f
     };
 

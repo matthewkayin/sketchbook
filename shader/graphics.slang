@@ -23,6 +23,7 @@ struct PushConstants {
 
 [[vk::binding(0, 1)]] Sampler2D hatch_texture0;
 [[vk::binding(1, 1)]] Sampler2D hatch_texture1;
+[[vk::binding(2, 1)]] Sampler2D shadow_map;
 
 [[vk::binding(0, 2)]] Sampler2D color_texture;
 
@@ -30,16 +31,24 @@ struct PushConstants {
 
 struct VertexOutput {
     float4 sv_position: SV_Position;
+    float4 depth_position;
     float3 world_position;
     float3 normal;
     float2 tex_coord;
 };
+
+static const float4x4 biasMat = float4x4(
+    0.5, 0.0, 0.0, 0.5,
+    0.0, 0.5, 0.0, 0.5,
+    0.0, 0.0, 1.0, 0.0,
+    0.0, 0.0, 0.0, 1.0);
 
 [shader("vertex")]
 VertexOutput vertex_main(VertexInput input) {
     VertexOutput output;
 
     output.world_position = mul(push_constants.model, float4(input.position, 1.0)).xyz;
+    output.depth_position = mul(biasMat, mul(ubo.depth_view_projection, mul(push_constants.model, float4(input.position, 1.0))));
     output.normal = mul(float3x3(push_constants.normal), input.normal);
     output.sv_position = mul(ubo.proj, mul(ubo.view, float4(output.world_position, 1.0)));
     output.tex_coord = input.tex_coord;
@@ -59,10 +68,25 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
     float diffuse_intensity = max(dot(normal, light_direction), 0.0);
     float3 diffuse = float3(diffuse_intensity) * light_color;
 
+    // Shadow
+    float4 shadow_coord = vertex_output.depth_position / vertex_output.depth_position.w;
+    float shadow = 1.0;
+    if (shadow_coord.z > -1.0 && shadow_coord.z < 1.0) {
+        float dist = shadow_map.Sample(shadow_coord.xy).r;
+        if (shadow_coord.w > 0.0 && dist < shadow_coord.z) {
+            shadow = 0.3;
+        }
+    }
+    // depth_position_ndc.z = (depth_position_ndc.z * 0.5) + 0.5;
+    // float closest_depth = shadow_map.Sample(depth_position_ndc.xy).r;
+    // float current_depth = depth_position_ndc.z;
+    // float shadow = current_depth > closest_depth ? 1.0 : 0.0;
+
     // Intensity
     float3 object_color = color_texture.Sample(vertex_output.tex_coord).xyz;
-    float3 lit_object_color = (ambient + diffuse) * object_color;
-    float intensity = length(diffuse);
+    float3 lit_color = ambient + (diffuse * shadow);
+    float3 lit_object_color = lit_color * object_color;
+    float intensity = length(lit_object_color);
     float tone = (1.0 - intensity) * 6.0;
 
     int level_a = int(floor(tone));

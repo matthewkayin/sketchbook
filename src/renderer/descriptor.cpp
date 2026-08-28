@@ -52,7 +52,6 @@ void vulkan_descriptor_sets_create(VulkanContext* context) {
             .pImmutableSamplers = nullptr
         },
         // Shadow Map
-        /*
         {
             .binding = 2,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -60,7 +59,6 @@ void vulkan_descriptor_sets_create(VulkanContext* context) {
             .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT,
             .pImmutableSamplers = nullptr
         },
-        */
     };
     VkDescriptorSetLayoutCreateInfo graphics_layout_create_info {
         .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -209,6 +207,29 @@ void vulkan_descriptor_sets_create(VulkanContext* context) {
         }
     }
 
+    // SHADOW MAP SAMPLER DESCRIPTORS
+    VkDescriptorImageInfo shadow_map_image_infos[VULKAN_MAX_FRAMES_IN_FLIGHT];
+    for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
+        shadow_map_image_infos[index] = {
+            .sampler = context->texture_sampler,
+            .imageView = context->shadow_maps[index].view,
+            .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+        };
+        descriptor_writes.push_back({
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .pNext = nullptr,
+            .dstSet = context->graphics_descriptor_sets[index],
+            .dstBinding = 2,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+            .pImageInfo = &shadow_map_image_infos[index],
+            .pBufferInfo = nullptr,
+            .pTexelBufferView = nullptr
+        });
+    }
+
+
     vkUpdateDescriptorSets(
         context->device.logical_device,
         descriptor_writes.size(), descriptor_writes.data(),
@@ -259,6 +280,33 @@ bool vulkan_uniform_objects_create(VulkanContext* context) {
         &sampler_create_info,
         context->allocator,
         &context->texture_sampler));
+
+    // Create depth sampler
+    VkSamplerCreateInfo depth_sampler_create_info {
+        .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = 0,
+        .magFilter = VK_FILTER_LINEAR,
+        .minFilter = VK_FILTER_LINEAR,
+        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR,
+        .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+        .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+        .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+        .mipLodBias = 0.0f,
+        .anisotropyEnable = VK_TRUE,
+        .maxAnisotropy = 1.0f,
+        .compareEnable = VK_FALSE,
+        .compareOp = VK_COMPARE_OP_ALWAYS,
+        .minLod = 0.0f,
+        .maxLod = 1.0f,
+        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE,
+        .unnormalizedCoordinates = VK_FALSE,
+    };
+    VK_CHECK(vkCreateSampler(
+        context->device.logical_device,
+        &depth_sampler_create_info,
+        context->allocator,
+        &context->depth_sampler));
 
     if (!vulkan_uniform_create_hatch_textures(context)) {
         return false;
@@ -367,8 +415,9 @@ void vulkan_uniform_objects_destroy(VulkanContext* context) {
         vulkan_image_destroy(context, &context->hatch_textures[index]);
     }
 
-    // Destroy texture sampler
+    // Destroy samplers
     vkDestroySampler(context->device.logical_device, context->texture_sampler, context->allocator);
+    vkDestroySampler(context->device.logical_device, context->depth_sampler, context->allocator);
 
     // Destroy uniform buffers
     for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {

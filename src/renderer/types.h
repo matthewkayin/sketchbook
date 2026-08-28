@@ -15,8 +15,8 @@ const uint32_t VULKAN_HATCH_CHANNELS_PER_IMAGE = VULKAN_HATCH_TEXTURE_CHANNEL_CO
 const uint32_t VULKAN_DESCRIPTOR_POOL_MAX_SETS = 64U;
 const uint32_t VULKAN_COMBINED_IMAGE_SAMPLER_DESCRIPTOR_COUNT = 48U;
 
-const uint32_t VULKAN_SHADOW_MAP_WIDTH = 1024U;
-const uint32_t VULKAN_SHADOW_MAP_HEIGHT = 1024U;
+const uint32_t VULKAN_SHADOW_MAP_WIDTH = 2048U;
+const uint32_t VULKAN_SHADOW_MAP_HEIGHT = 2048U;
 
 #define VK_CHECK(expr)                  \
     {                                   \
@@ -148,6 +148,7 @@ struct VulkanContext {
     VulkanImage hatch_textures[VULKAN_HATCH_TEXTURE_IMAGE_COUNT];
     VulkanImage shadow_maps[VULKAN_MAX_FRAMES_IN_FLIGHT];
     VkSampler texture_sampler;
+    VkSampler depth_sampler;
     VulkanImage fallback_texture;
 
     // Model
