@@ -23,7 +23,7 @@ struct PushConstants {
 
 [[vk::binding(0, 1)]] Sampler2D hatch_texture0;
 [[vk::binding(1, 1)]] Sampler2D hatch_texture1;
-[[vk::binding(2, 1)]] Sampler2D shadow_map;
+[[vk::binding(2, 1)]] Sampler2DShadow shadow_map;
 
 [[vk::binding(0, 2)]] Sampler2D color_texture;
 
@@ -56,6 +56,39 @@ VertexOutput vertex_main(VertexInput input) {
     return output;
 }
 
+float shadow_simple(float4 shadow_coord, float2 offset) {
+    float shadow = 1.0;
+    if (shadow_coord.z > -1.0 && shadow_coord.z < 1.0) {
+        float dist = shadow_map.Sample(shadow_coord.xy + offset).r;
+        if (shadow_coord.w > 0.0 && dist < shadow_coord.z) {
+            shadow = 0.3;
+        }
+    }
+
+    return shadow;
+}
+
+float shadow_pcf(float4 shadow_coord) {
+    int2 tex_dim;
+    shadow_map.GetDimensions(tex_dim.x, tex_dim.y);
+    float scale = 1.5;
+    float dx = scale * 1.0 / float(tex_dim.x);
+    float dy = scale * 1.0 / float(tex_dim.y);
+
+    float shadow_factor = 0.0;
+    int count = 0;
+    int range = 1;
+
+    for (int x = -range; x <= range; x++) {
+        for (int y = -range; y <= range; y++) {
+            shadow_factor += shadow_simple(shadow_coord, float2(dx * x, dy * y));
+            count++;
+        }
+    }
+
+    return shadow_factor / count;
+}
+
 [shader("fragment")]
 float4 fragment_main(VertexOutput vertex_output): SV_Target {
     // Ambient
@@ -64,23 +97,14 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
 
     // Diffuse
     float3 normal = normalize(vertex_output.normal);
-    float3 light_direction = normalize(ubo.light_position.xyz - vertex_output.world_position);
-    float diffuse_intensity = max(dot(normal, light_direction), 0.0);
+    float3 light_direction = ubo.light_position.xyz - vertex_output.world_position;
+    float3 light_direction_normalized = normalize(light_direction);
+    float diffuse_intensity = max(dot(normal, light_direction_normalized), 0.0) * (4.0 / length(light_direction));
     float3 diffuse = float3(diffuse_intensity) * light_color;
 
     // Shadow
     float4 shadow_coord = vertex_output.depth_position / vertex_output.depth_position.w;
-    float shadow = 1.0;
-    if (shadow_coord.z > -1.0 && shadow_coord.z < 1.0) {
-        float dist = shadow_map.Sample(shadow_coord.xy).r;
-        if (shadow_coord.w > 0.0 && dist < shadow_coord.z) {
-            shadow = 0.3;
-        }
-    }
-    // depth_position_ndc.z = (depth_position_ndc.z * 0.5) + 0.5;
-    // float closest_depth = shadow_map.Sample(depth_position_ndc.xy).r;
-    // float current_depth = depth_position_ndc.z;
-    // float shadow = current_depth > closest_depth ? 1.0 : 0.0;
+    float shadow = shadow_simple(shadow_coord, float2(0.0, 0.0));
 
     // Intensity
     float3 object_color = color_texture.Sample(vertex_output.tex_coord).xyz;
@@ -106,7 +130,7 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
     hatch_colors[6] = hatch1.b;
 
     // Hatch shading with blend
-    // float hatch_color = lerp(hatch_colors[level_a], hatch_colors[level_a + 1], blend_weight);
-    // return float4(hatch_color, hatch_color, hatch_color, 1.0);
-    return float4(float3(intensity), 1.0);
+    float hatch_color = lerp(hatch_colors[level_a], hatch_colors[level_a + 1], blend_weight);
+    return float4(hatch_color, hatch_color, hatch_color, 1.0);
+    // return float4(float3(intensity), 1.0);
 }

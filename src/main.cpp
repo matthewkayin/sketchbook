@@ -52,7 +52,7 @@ int main() {
     state.model_angle = 0.0f;
     state.show_outline = false;
 
-    vec3 light_position = vec3(2.0f, 2.0f, -2.0f);
+    vec3 light_position = vec3(5.0f, 5.0f, -3.0f);
 
     while (app_is_running()) {
         input_poll_events();
