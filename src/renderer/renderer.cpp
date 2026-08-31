@@ -351,6 +351,11 @@ void renderer_draw_frame(RenderPacket packet) {
         };
         vkCmdSetViewport(context.graphics_command_buffers[context.frame_index], 0, 1, &viewport);
         vkCmdSetScissor(context.graphics_command_buffers[context.frame_index], 0, 1, &scissor);
+        if (packet.mode == 0) {
+            vkCmdSetDepthBias(context.graphics_command_buffers[context.frame_index], 0.0f, 0.0f, 0.0f);
+        } else {
+            vkCmdSetDepthBias(context.graphics_command_buffers[context.frame_index], 1.25f, 0.0f, 1.75f);
+        }
 
         // Draw scene
         vulkan_model_render(&context, context.model_floor, mat4::identity(), false);

@@ -41,6 +41,8 @@ struct VertexOutput {
 static const float MODE_NO_BIAS = 0.0;
 static const float MODE_SIMPLE_SHADOW = 1.0;
 static const float MODE_PCF_SHADOW = 2.0;
+static const float MODE_PCF_SHADOW_X2 = 3.0;
+static const float MODE_PENCIL_SHADOW = 4.0;
 
 static const float4x4 biasMat = float4x4(
     0.5, 0.0, 0.0, 0.5,
@@ -82,7 +84,9 @@ float shadow_pcf(float4 shadow_coord) {
 
     float shadow_factor = 0.0;
     int count = 0;
-    int range = 1;
+    int range = ubo.mode.x >= MODE_PCF_SHADOW_X2
+        ? 4
+        : 1;
 
     for (int x = -range; x <= range; x++) {
         for (int y = -range; y <= range; y++) {
@@ -100,7 +104,7 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
 
     // Shadow
     float4 shadow_coord = vertex_output.depth_position / vertex_output.depth_position.w;
-    float shadow = shadow_mode == MODE_PCF_SHADOW
+    float shadow = shadow_mode >= MODE_PCF_SHADOW
         ? shadow_pcf(shadow_coord)
         : shadow_simple(shadow_coord, float2(0.0, 0.0));
 
@@ -129,6 +133,7 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
 
     // Hatch shading with blend
     float hatch_color = lerp(hatch_colors[level_a], hatch_colors[level_a + 1], blend_weight);
-    // return float4(hatch_color, hatch_color, hatch_color, 1.0);
-    return float4(float3(intensity), 1.0);
+    return shadow_mode == MODE_PENCIL_SHADOW
+        ? float4(hatch_color, hatch_color, hatch_color, 1.0)
+        : float4(float3(intensity), 1.0);
 }

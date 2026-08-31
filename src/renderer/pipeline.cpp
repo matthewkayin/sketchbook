@@ -667,7 +667,8 @@ bool vulkan_pipeline_create_shadow(VulkanContext* context, VulkanPipeline* out_p
     // Dynamic state
     VkDynamicState dynamic_states[] = {
         VK_DYNAMIC_STATE_VIEWPORT,
-        VK_DYNAMIC_STATE_SCISSOR
+        VK_DYNAMIC_STATE_SCISSOR,
+        VK_DYNAMIC_STATE_DEPTH_BIAS
     };
     VkPipelineDynamicStateCreateInfo dynamic_state {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,

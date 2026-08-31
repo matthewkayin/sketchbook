@@ -101,7 +101,7 @@ int main() {
             state.show_outline = !state.show_outline;
         }
 
-        for (uint32_t index = 0; index < 3; index++) {
+        for (uint32_t index = 0; index < 5; index++) {
             if (input_is_key_just_pressed((SDL_Scancode)(SDL_SCANCODE_1 + index))) {
                 state.mode = index;
             }
@@ -159,8 +159,7 @@ bool app_init() {
     }
 
     const char* model_paths[] = {
-        "../res/model/plant.glb",
-        "../res/model/chess.glb"
+        "../res/model/plant.glb"
     };
     for (uint32_t index = 0; index < array_length(model_paths); index++) {
         uint32_t model_index;
