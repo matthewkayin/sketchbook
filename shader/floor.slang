@@ -38,6 +38,10 @@ struct VertexOutput {
     float2 tex_coord;
 };
 
+static const float MODE_NO_BIAS = 0.0;
+static const float MODE_SIMPLE_SHADOW = 1.0;
+static const float MODE_PCF_SHADOW = 2.0;
+
 static const float4x4 biasMat = float4x4(
     0.5, 0.0, 0.0, 0.5,
     0.0, 0.5, 0.0, 0.5,
@@ -90,24 +94,9 @@ float shadow_pcf(float4 shadow_coord) {
     return shadow_factor / count;
 }
 
-static const float MODE_NO_BIAS = 0.0;
-static const float MODE_SIMPLE_SHADOW = 1.0;
-static const float MODE_PCF_SHADOW = 2.0;
-
 [shader("fragment")]
 float4 fragment_main(VertexOutput vertex_output): SV_Target {
     float shadow_mode = ubo.mode.x;
-
-    // Ambient
-    float3 light_color = float3(1.0);
-    float3 ambient = 0.3 * light_color;
-
-    // Diffuse
-    float3 normal = normalize(vertex_output.normal);
-    float3 light_direction = ubo.light_position.xyz - vertex_output.world_position;
-    float3 light_direction_normalized = normalize(light_direction);
-    float diffuse_intensity = max(dot(normal, light_direction_normalized), 0.0) * (4.0 / length(light_direction));
-    float3 diffuse = float3(diffuse_intensity) * light_color;
 
     // Shadow
     float4 shadow_coord = vertex_output.depth_position / vertex_output.depth_position.w;
@@ -117,8 +106,7 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
 
     // Intensity
     float3 object_color = color_texture.Sample(vertex_output.tex_coord).xyz;
-    float3 lit_color = ambient + (diffuse * shadow);
-    float3 lit_object_color = lit_color * object_color;
+    float3 lit_object_color = float3(shadow);
     float intensity = length(lit_object_color);
     float tone = (1.0 - intensity) * 6.0;
 
@@ -126,7 +114,7 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
     float blend_weight = frac(tone);
 
     // Sample
-    float tex_coord_multiplier = 16.0;
+    float tex_coord_multiplier = 128.0;
     float3 hatch0 = hatch_texture0.Sample(vertex_output.tex_coord * tex_coord_multiplier).rgb;
     float3 hatch1 = hatch_texture1.Sample(vertex_output.tex_coord * tex_coord_multiplier).rgb;
 
@@ -141,6 +129,6 @@ float4 fragment_main(VertexOutput vertex_output): SV_Target {
 
     // Hatch shading with blend
     float hatch_color = lerp(hatch_colors[level_a], hatch_colors[level_a + 1], blend_weight);
-    return float4(hatch_color, hatch_color, hatch_color, 1.0);
-    // return float4(float3(intensity), 1.0);
+    // return float4(hatch_color, hatch_color, hatch_color, 1.0);
+    return float4(float3(intensity), 1.0);
 }

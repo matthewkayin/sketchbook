@@ -5,12 +5,12 @@
 #include "renderer/uniform_types.h"
 #include "renderer/shader_module.h"
 
-bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out_pipeline) {
+bool vulkan_pipeline_create_graphics(VulkanContext* context, const char* shader_path, VulkanPipeline* out_pipeline) {
     bool success;
 
     // Load shader module
     VkShaderModule shader_module;
-    if (!vulkan_shader_module_create(context, "shader/graphics.spv", &shader_module)) {
+    if (!vulkan_shader_module_create(context, shader_path, &shader_module)) {
         return false;
     }
 
@@ -202,7 +202,7 @@ bool vulkan_pipeline_create_graphics(VulkanContext* context, VulkanPipeline* out
         {
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
             .offset = 0,
-            .size = sizeof(RendererPushConstants)
+            .size = sizeof(RendererModelPushConstants)
         }
     };
 
@@ -458,7 +458,7 @@ bool vulkan_pipeline_create_outline(VulkanContext* context, VulkanPipeline* out_
         {
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
             .offset = 0,
-            .size = sizeof(RendererPushConstants)
+            .size = sizeof(RendererModelPushConstants)
         }
     };
 
@@ -601,9 +601,9 @@ bool vulkan_pipeline_create_shadow(VulkanContext* context, VulkanPipeline* out_p
         .cullMode = VK_CULL_MODE_NONE,
         .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .depthBiasEnable = VK_TRUE,
-        .depthBiasConstantFactor = 1.25f,
+        .depthBiasConstantFactor = 0.0f,
         .depthBiasClamp = 0.0f,
-        .depthBiasSlopeFactor = 1.75f,
+        .depthBiasSlopeFactor = 0.0f,
         .lineWidth = 1.0f
     };
 
@@ -686,7 +686,7 @@ bool vulkan_pipeline_create_shadow(VulkanContext* context, VulkanPipeline* out_p
         {
             .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
             .offset = 0,
-            .size = sizeof(RendererPushConstants)
+            .size = sizeof(RendererModelPushConstants)
         }
     };
 

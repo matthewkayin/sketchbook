@@ -111,7 +111,10 @@ bool renderer_init(SDL_Window* window) {
     vulkan_descriptor_sets_create(&context);
 
     // Create pipelines
-    if (!vulkan_pipeline_create_graphics(&context, &context.graphics_pipeline)) {
+    if (!vulkan_pipeline_create_graphics(&context, "shader/graphics.spv", &context.graphics_pipeline)) {
+        return false;
+    }
+    if (!vulkan_pipeline_create_graphics(&context, "shader/floor.spv", &context.floor_pipeline)) {
         return false;
     }
     if (!vulkan_pipeline_create_outline(&context, &context.outline_pipeline)) {
@@ -182,6 +185,7 @@ void renderer_quit() {
         array_length(context.graphics_command_buffers),
         context.graphics_command_buffers);
     vulkan_pipeline_destroy(&context, &context.graphics_pipeline);
+    vulkan_pipeline_destroy(&context, &context.floor_pipeline);
     vulkan_pipeline_destroy(&context, &context.outline_pipeline);
     vulkan_pipeline_destroy(&context, &context.shadow_pipeline);
     vulkan_swapchain_destroy(&context);
@@ -206,11 +210,6 @@ void renderer_quit() {
 
 void renderer_on_resized() {
     renderer_recreate_swapchain();
-}
-
-void renderer_draw_scene(const RenderPacket& packet, bool use_material) {
-    vulkan_model_render(&context, context.model_floor, mat4::identity(), use_material);
-    vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform, false);
 }
 
 void renderer_draw_frame(RenderPacket packet) {
@@ -266,9 +265,10 @@ void renderer_draw_frame(RenderPacket packet) {
         .projection = mat4::perspective(45.0f * SBK_DEG_TO_RAD, (float)context.swapchain.extent.width / (float)context.swapchain.extent.height, 0.1f, 1000.0f),
         .depth_view_projection =
             mat4::look_at(packet.light_position, vec3(0.0f, 0.0f, 0.0f), vec3::up()) *
-            mat4::ortho(-10.0f, 10.0f, 10.0f, -10.0f, 1.0f, 5.0f),
+            mat4::ortho(-5.0f, 5.0f, 5.0f, -5.0f, 1.0f, 7.5f),
         .view_position = vec4(packet.view_position, 0.0f),
-        .light_position = vec4(packet.light_position, 0.0f)
+        .light_position = vec4(packet.light_position, 0.0f),
+        .mode = vec4((float)packet.mode, 0.0f, 0.0f, 0.0f)
     };
 
     vulkan_buffer_load_data(&context, &context.uniform_buffers[context.frame_index], {
@@ -352,7 +352,9 @@ void renderer_draw_frame(RenderPacket packet) {
         vkCmdSetViewport(context.graphics_command_buffers[context.frame_index], 0, 1, &viewport);
         vkCmdSetScissor(context.graphics_command_buffers[context.frame_index], 0, 1, &scissor);
 
-        renderer_draw_scene(packet, false);
+        // Draw scene
+        vulkan_model_render(&context, context.model_floor, mat4::identity(), false);
+        vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform, false);
 
         vkCmdEndRendering(context.graphics_command_buffers[context.frame_index]);
     }
@@ -483,11 +485,10 @@ void renderer_draw_frame(RenderPacket packet) {
             .extent = context.swapchain.extent
         };
 
-        // Bind pipeline
-        vulkan_pipeline_bind(&context, &context.graphics_pipeline);
+        // Bind floor pipeline
+        vulkan_pipeline_bind(&context, &context.floor_pipeline);
         vkCmdSetViewport(context.graphics_command_buffers[context.frame_index], 0, 1, &viewport);
         vkCmdSetScissor(context.graphics_command_buffers[context.frame_index], 0, 1, &scissor);
-
         // Bind graphics descriptor sets
         vkCmdBindDescriptorSets(
             context.graphics_command_buffers[context.frame_index],
@@ -495,12 +496,17 @@ void renderer_draw_frame(RenderPacket packet) {
             1, 1, &context.graphics_descriptor_sets[context.frame_index],
             0, nullptr);
 
-        renderer_draw_scene(packet, true);
+        // Render floor
+        vulkan_model_render(&context, context.model_floor, mat4::identity(), true);
 
-        // RENDER PASS 2 - OUTLINE
+        // Bind graphics and render model
+        vulkan_pipeline_bind(&context, &context.graphics_pipeline);
+        vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform, true);
+
+        // Render outline
         if (packet.show_outline) {
             vulkan_pipeline_bind(&context, &context.outline_pipeline);
-            renderer_draw_scene(packet, false);
+            vulkan_model_render(&context, context.model_data[packet.model_index], packet.model_transform, false);
         }
 
         vkCmdEndRendering(context.graphics_command_buffers[context.frame_index]);

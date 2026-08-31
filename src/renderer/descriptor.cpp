@@ -211,7 +211,7 @@ void vulkan_descriptor_sets_create(VulkanContext* context) {
     VkDescriptorImageInfo shadow_map_image_infos[VULKAN_MAX_FRAMES_IN_FLIGHT];
     for (uint32_t index = 0; index < VULKAN_MAX_FRAMES_IN_FLIGHT; index++) {
         shadow_map_image_infos[index] = {
-            .sampler = context->texture_sampler,
+            .sampler = context->depth_sampler,
             .imageView = context->shadow_maps[index].view,
             .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
         };

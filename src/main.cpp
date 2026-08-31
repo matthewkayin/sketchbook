@@ -33,6 +33,7 @@ struct AppState {
     std::vector<uint32_t> models;
 
     bool show_outline;
+    uint32_t mode;
 };
 static AppState state;
 
@@ -51,8 +52,9 @@ int main() {
     state.camera_distance = 10.0f;
     state.model_angle = 0.0f;
     state.show_outline = false;
+    state.mode = 0;
 
-    vec3 light_position = vec3(5.0f, 5.0f, -3.0f);
+    vec3 light_position = vec3(3.0f, 5.0f, -3.0f);
 
     while (app_is_running()) {
         input_poll_events();
@@ -95,8 +97,14 @@ int main() {
             }
         }
 
-        if (input_is_key_pressed(SDL_SCANCODE_O)) {
+        if (input_is_key_just_pressed(SDL_SCANCODE_O)) {
             state.show_outline = !state.show_outline;
+        }
+
+        for (uint32_t index = 0; index < 3; index++) {
+            if (input_is_key_just_pressed((SDL_Scancode)(SDL_SCANCODE_1 + index))) {
+                state.mode = index;
+            }
         }
 
         vec3 model_position = vec3(0.0f, 0.0f, 0.0f);
@@ -108,7 +116,8 @@ int main() {
             .light_position = light_position,
             .model_index = state.current_model,
             .model_transform = mat4::scale(vec3(4.0f, 4.0f, 4.0f)) * model_rotation.to_rotation_matrix(model_position),
-            .show_outline = state.show_outline
+            .show_outline = state.show_outline,
+            .mode = state.mode
         });
     }
 
@@ -151,7 +160,7 @@ bool app_init() {
 
     const char* model_paths[] = {
         "../res/model/plant.glb",
-        "../res/model/teacup.glb"
+        "../res/model/chess.glb"
     };
     for (uint32_t index = 0; index < array_length(model_paths); index++) {
         uint32_t model_index;

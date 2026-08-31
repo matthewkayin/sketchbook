@@ -555,9 +555,9 @@ void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, c
     }
 
     mat4 model_matrix = node.local_transform * transform;
-    RendererPushConstants constants {
+    RendererModelPushConstants constants {
         .model = model_matrix,
-        .normal = model_matrix.inversed().transposed()
+        .normal = model_matrix.inversed().transposed(),
     };
 
     // Render each primitive
@@ -575,8 +575,10 @@ void vulkan_model_render_node(VulkanContext* context, const VulkanModel&model, c
         }
 
         // Push model matrix
-        vkCmdPushConstants(context->graphics_command_buffers[context->frame_index], context->bound_pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(RendererPushConstants), &constants);
-
+        vkCmdPushConstants(
+            context->graphics_command_buffers[context->frame_index],
+            context->bound_pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT,
+            0, sizeof(constants), &constants);
         vkCmdDrawIndexed(
             context->graphics_command_buffers[context->frame_index],
             primitive.index_count, 1, primitive.first_index, 0, 0);

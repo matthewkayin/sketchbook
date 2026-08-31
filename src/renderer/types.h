@@ -106,11 +106,6 @@ struct VulkanModel {
     std::vector<VulkanImage> textures;
 };
 
-struct VulkanModelRenderParams {
-    uint32_t model_index;
-    mat4 transform;
-};
-
 struct VulkanContext {
     SDL_Window* window;
 
@@ -123,6 +118,7 @@ struct VulkanContext {
     VulkanSwapchain swapchain;
 
     VulkanPipeline graphics_pipeline;
+    VulkanPipeline floor_pipeline;
     VulkanPipeline outline_pipeline;
     VulkanPipeline shadow_pipeline;
     VulkanPipeline* bound_pipeline;

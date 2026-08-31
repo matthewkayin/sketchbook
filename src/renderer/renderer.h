@@ -12,6 +12,7 @@ struct RenderPacket {
     uint32_t model_index;
     mat4 model_transform;
     bool show_outline;
+    uint32_t mode;
 };
 
 bool renderer_init(SDL_Window* window);
